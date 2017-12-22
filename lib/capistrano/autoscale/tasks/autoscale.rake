@@ -53,7 +53,7 @@ namespace :deploy do
           ::Aws.config[:region] = fetch(:aws_region)
           ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
 
-          date_now = Time.zone.now.strftime('%y-%m-%d %H.%M')
+          date_now = Time.now.strftime('%y-%m-%d %H.%M')
 
           ec2 = ::Aws::EC2::Client.new
           autoscaling = ::Aws::AutoScaling::Client.new
