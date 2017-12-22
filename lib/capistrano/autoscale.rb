@@ -4,7 +4,7 @@ require 'capistrano/autoscale/helpers/aws_utils'
 
 def setup_servers
   puts "Search instances to deploy"
-  ec2_instances = AwsUtils.fetch_ec2_instances(fetch(:instance_type))
+  ec2_instances = Capistrano::Autoscale::AwsUtils.fetch_ec2_instances(fetch(:instance_type))
   aws_deploy_user = fetch(:deploy_user)
   set :instances, ec2_instances.map {|i| i[:instance_id]}
   ec2_instances.each {|instance|
