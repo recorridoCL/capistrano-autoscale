@@ -51,6 +51,7 @@ namespace :deploy do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
+          deployment_env = fetch(:deployment_env)
           ::Aws.config[:region] = fetch(:aws_region)
           ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
 
@@ -82,7 +83,7 @@ namespace :deploy do
                           ebs: {
                               encrypted: false,
                               delete_on_termination: true,
-                              volume_size: 8,
+                              volume_size: fetch(:volume_sizes)[0],
                               volume_type: 'gp2',
                           }
                       },
@@ -91,15 +92,15 @@ namespace :deploy do
                           ebs: {
                               encrypted: false,
                               delete_on_termination: true,
-                              volume_size: 10,
+                              volume_size: fetch(:volume_sizes)[1],
                               volume_type: 'gp2',
                           }
                       }
                   ],
-                  description: "Club autoscale with ebs termination #{date_now}",
+                  description: "#{deployment_env} autoscale with ebs termination #{date_now}",
                   dry_run: false,
                   instance_id: instances.last,
-                  name: "Club-Autoscale #{date_now}",
+                  name: "#{deployment_env}-autoscale #{date_now}",
                   no_reboot: true,
               })
           info "Finished create AMI #{new_ami.image_id}"
@@ -114,7 +115,7 @@ namespace :deploy do
 
           # Create launch configuration
           info "Starting create launch configuration"
-          launch_configuration_name = "Autoscale-club-launch-#{date_now}"
+          launch_configuration_name = "Autoscale-#{deployment_env}-launch-#{date_now}"
           autoscaling.create_launch_configuration(
               {
                   iam_instance_profile: "autoscaling-iam",
