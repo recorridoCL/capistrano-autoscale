@@ -17,6 +17,7 @@ namespace :deploy do
                   target_group_arn: fetch(:autoscaling_target_group_arn),
                   targets: instances
               })
+          sleep 20
         end
       end
     end
