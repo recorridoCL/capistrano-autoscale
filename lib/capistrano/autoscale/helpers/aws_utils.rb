@@ -3,11 +3,11 @@ module Capistrano
     class AwsUtils
       include Capistrano::DSL
       def self.fetch_ec2_instances(type)
-        Aws.config[:region] = fetch(:aws_region)
-        Aws.config[:credentials] = Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+        ::Aws.config[:region] = fetch(:aws_region)
+        ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
 
-        loadbalancer = Aws::ElasticLoadBalancingV2::Client.new
-        ec2 = Aws::EC2::Client.new
+        loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
+        ec2 = ::Aws::EC2::Client.new
 
         loadbalancer_data = loadbalancer.describe_target_health({
                                                                     target_group_arn: fetch(:autoscaling_target_group_arn)
