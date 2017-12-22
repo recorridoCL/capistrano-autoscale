@@ -1,6 +1,6 @@
 namespace :deploy do
   desc "Register instances in load balancer"
-  task :register_instances_in_load_balancer => :environment do
+  task :register_instances_in_load_balancer do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
@@ -23,7 +23,7 @@ namespace :deploy do
   end
 
   desc "Deregister instances from load balancer"
-  task :deregister_instances_from_load_balancer => :environment do
+  task :deregister_instances_from_load_balancer do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
