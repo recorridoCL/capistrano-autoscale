@@ -1,7 +1,8 @@
-load File.expand_path('../autoscale/tasks/autoscale.rake', __FILE__)
 require 'capistrano/all'
 require 'capistrano/autoscale/helpers/aws_utils'
 require 'aws-sdk'
+load File.expand_path('../autoscale/tasks/autoscale.rake', __FILE__)
+
 
 def setup_servers
   puts "Search instances to deploy"
