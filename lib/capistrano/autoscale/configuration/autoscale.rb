@@ -2,7 +2,7 @@ module Capistrano
   module Configuration
     module Autoscale
       def setup_servers
-        puts "I'm setting up servers"
+        puts "I'm setting up servers #{fetch(:instance_type)}"
         # puts "Search instances to deploy"
         # ec2_instances = fetch_ec2_instances(fetch(:instance_type))
         # aws_deploy_user = 'ubuntu'
