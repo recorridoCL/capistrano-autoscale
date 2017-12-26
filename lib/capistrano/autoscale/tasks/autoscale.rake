@@ -120,7 +120,7 @@ namespace :deploy do
               {
                   iam_instance_profile: "autoscaling-iam",
                   image_id: new_ami.image_id,
-                  instance_type: "t2.small",
+                  instance_type: fetch(:instance_type),
                   launch_configuration_name: launch_configuration_name,
                   security_groups: [
                       "sg-b8f3e8df",
