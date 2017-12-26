@@ -70,7 +70,7 @@ namespace :deploy do
           ).auto_scaling_groups[0].instances.map {|h| h['instance_id']}
 
           # List images
-          old_ami = ec2.describe_images({owners: ['824916716342']}).images.select {|s| s['name'].downcase =~ /autoscale/}.map {|h| {name: h['name'], image_id: h['image_id']}}
+          old_ami = ec2.describe_images({owners: ['824916716342']}).images.select {|s| s['name'].downcase.include?("#{deployment_env}-autoscale")}.map {|h| {name: h['name'], image_id: h['image_id']}}
           old_ami_image_id = old_ami[0][:image_id]
 
           # Create AMI
