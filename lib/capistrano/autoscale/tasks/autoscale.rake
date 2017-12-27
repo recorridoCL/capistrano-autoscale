@@ -123,7 +123,7 @@ namespace :deploy do
                   instance_type: fetch(:instance_type),
                   launch_configuration_name: launch_configuration_name,
                   security_groups: [
-                      "sg-b8f3e8df",
+                      fetch(:security_group),
                   ],
               })
           info "Finished create launch configuration #{launch_configuration_name}"
