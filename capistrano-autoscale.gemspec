@@ -17,5 +17,7 @@ Gem::Specification.new do |s|
   s.files = Dir["{app,config,db,lib}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
 
   s.add_dependency "capistrano", ">= 3.8"
-  s.add_dependency "aws-sdk", ">= 2.9"
+  s.add_dependency "aws-sdk-ec2", ">= 1.23.0"
+  s.add_dependency "aws-sdk-elasticloadbalancingv2", ">= 1.6.0"
+  s.add_dependency "aws-sdk-autoscaling", ">= 1.4.0"
 end

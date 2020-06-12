@@ -1,6 +1,9 @@
+require 'aws-sdk-ec2'
+require 'aws-sdk-elasticloadbalancingv2'
+require 'aws-sdk-autoscaling'
 require 'capistrano/all'
 require 'capistrano/autoscale/helpers/aws_utils'
-require 'aws-sdk'
+
 load File.expand_path('../autoscale/tasks/autoscale.rake', __FILE__)
 
 
