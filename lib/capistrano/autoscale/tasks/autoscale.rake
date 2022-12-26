@@ -69,10 +69,6 @@ namespace :deploy do
               }
           ).auto_scaling_groups[0].instances.map {|h| h['instance_id']}
 
-          # List images
-          old_ami = ec2.describe_images({owners: ['824916716342']}).images.select {|s| s['name'].downcase.include?("#{deployment_env}-autoscale")}.map {|h| {name: h['name'], image_id: h['image_id']}}
-          old_ami_image_id = old_ami[0][:image_id]
-
           # Create AMI
           info "Starting creating AMI"
           new_ami = ec2.create_image(
@@ -105,45 +101,82 @@ namespace :deploy do
               })
           info "Finished create AMI #{new_ami.image_id}"
 
-          # Delete old AMI
-          info "Starting deleting old AMI: #{old_ami_image_id}"
-          ec2.deregister_image({
+          launch_templates_enabled = fetch(:autoscaling_launch_templates_enabled)
+
+          if launch_templates_enabled
+            # Create launch template version from new AMI
+            info "Starting create launch template new version"
+            version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
+            resp = ec2.create_launch_template_version({
+              launch_template_id: fetch(:autoscaling_launch_template_id),
+              version_description: version_name,
+              launch_template_data: {
+                image_id: new_ami.image_id,
+                instance_type: fetch(:instance_type),
+                iam_instance_profile: {
+                  name: 'autoscaling-iam'
+                },
+                security_groups: [
+                  fetch(:security_group)
+                ]
+              }
+            })
+
+            new_template_version_number = resp.launch_template_version.version_number
+            info "Finished create launch template new version #{new_template_version_number}"
+
+            # Update autoscaling group
+            info "Setting new version as default in the launch template"
+            ec2.modify_launch_template({
+              launch_template_id: fetch(:autoscaling_launch_template_id),
+              default_version: new_template_version_number
+            })
+          else
+            # List images
+            old_amis = ec2.describe_images({owners: ['824916716342']}).images.select {|s| s['name'].downcase.include?("#{deployment_env}-autoscale")}.map {|h| {name: h['name'], image_id: h['image_id']}}
+            old_ami = old_amis.sort_by { |h| h[:name] }.first
+            old_ami_image_id = old_ami[:image_id]
+
+            # Delete old AMI
+            info "Starting deleting old AMI: #{old_ami_image_id}"
+            ec2.deregister_image({
                                    image_id: old_ami_image_id,
                                    dry_run: false,
-                               })
-          info "Finished delete old AMI: #{old_ami_image_id}"
+                                 })
+            info "Finished delete old AMI: #{old_ami_image_id}"
 
-          # Create launch configuration
-          info "Starting create launch configuration"
-          launch_configuration_name = "Autoscale-#{deployment_env}-launch-#{date_now}"
-          autoscaling.create_launch_configuration(
+            # Create launch configuration
+            info "Starting create launch configuration"
+            launch_configuration_name = "Autoscale-#{deployment_env}-launch-#{date_now}"
+            autoscaling.create_launch_configuration(
               {
-                  iam_instance_profile: "autoscaling-iam",
-                  image_id: new_ami.image_id,
-                  instance_type: fetch(:instance_type),
-                  launch_configuration_name: launch_configuration_name,
-                  security_groups: [
-                      fetch(:security_group),
-                  ],
+                iam_instance_profile: "autoscaling-iam",
+                image_id: new_ami.image_id,
+                instance_type: fetch(:instance_type),
+                launch_configuration_name: launch_configuration_name,
+                security_groups: [
+                  fetch(:security_group),
+                ],
               })
-          info "Finished create launch configuration #{launch_configuration_name}"
+            info "Finished create launch configuration #{launch_configuration_name}"
 
-          # List launch configurations
-          old_launch_configuration = autoscaling.describe_launch_configurations.launch_configurations.select {|h| h['image_id'] == old_ami_image_id}[0].launch_configuration_name
+            # List launch configurations
+            old_launch_configuration = autoscaling.describe_launch_configurations.launch_configurations.select {|h| h['image_id'] == old_ami_image_id}[0].launch_configuration_name
 
-          # Update autoscaling group
-          info "Starting updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{old_launch_configuration}"
-          autoscaling.update_auto_scaling_group(
+            # Update autoscaling group
+            info "Starting updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{old_launch_configuration}"
+            autoscaling.update_auto_scaling_group(
               {
-                  auto_scaling_group_name: autoscaling_group_name,
-                  launch_configuration_name: launch_configuration_name
+                auto_scaling_group_name: autoscaling_group_name,
+                launch_configuration_name: launch_configuration_name
               })
-          info "Finished updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{launch_configuration_name}"
+            info "Finished updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{launch_configuration_name}"
 
-          # Delete old launch configuration
-          info "Starting removing old launch configuration #{old_launch_configuration}"
-          autoscaling.delete_launch_configuration({launch_configuration_name: old_launch_configuration})
-          info "Finished removing old launch configuration #{old_launch_configuration}"
+            # Delete old launch configuration
+            info "Starting removing old launch configuration #{old_launch_configuration}"
+            autoscaling.delete_launch_configuration({launch_configuration_name: old_launch_configuration})
+            info "Finished removing old launch configuration #{old_launch_configuration}"
+          end
         end
       end
     end
