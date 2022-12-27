@@ -116,20 +116,24 @@ namespace :deploy do
                 iam_instance_profile: {
                   name: 'autoscaling-iam'
                 },
-                security_groups: [
+                monitoring: {
+                  enabled: true
+                },
+                security_group_ids: [
                   fetch(:security_group)
-                ]
+                ],
+                ebs_optimized: false
               }
             })
 
             new_template_version_number = resp.launch_template_version.version_number
-            info "Finished create launch template new version #{new_template_version_number}"
+            info "Finished create launch template new version (V. Number: #{new_template_version_number})"
 
             # Update autoscaling group
             info "Setting new version as default in the launch template"
             ec2.modify_launch_template({
               launch_template_id: fetch(:autoscaling_launch_template_id),
-              default_version: new_template_version_number
+              default_version: new_template_version_number.to_s
             })
           else
             # List images
