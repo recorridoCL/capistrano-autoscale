@@ -144,24 +144,23 @@ namespace :deploy do
             # Delete old AMI
             info "Starting deleting old AMI: #{old_ami_image_id}"
             ec2.deregister_image({
-                                   image_id: old_ami_image_id,
-                                   dry_run: false,
-                                 })
+              image_id: old_ami_image_id,
+              dry_run: false,
+            })
             info "Finished delete old AMI: #{old_ami_image_id}"
 
             # Create launch configuration
             info "Starting create launch configuration"
             launch_configuration_name = "Autoscale-#{deployment_env}-launch-#{date_now}"
-            autoscaling.create_launch_configuration(
-              {
-                iam_instance_profile: "autoscaling-iam",
-                image_id: new_ami.image_id,
-                instance_type: fetch(:instance_type),
-                launch_configuration_name: launch_configuration_name,
-                security_groups: [
-                  fetch(:security_group),
-                ],
-              })
+            autoscaling.create_launch_configuration({
+              iam_instance_profile: "autoscaling-iam",
+              image_id: new_ami.image_id,
+              instance_type: fetch(:instance_type),
+              launch_configuration_name: launch_configuration_name,
+              security_groups: [
+                fetch(:security_group),
+              ],
+            })
             info "Finished create launch configuration #{launch_configuration_name}"
 
             # List launch configurations
@@ -169,11 +168,10 @@ namespace :deploy do
 
             # Update autoscaling group
             info "Starting updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{old_launch_configuration}"
-            autoscaling.update_auto_scaling_group(
-              {
-                auto_scaling_group_name: autoscaling_group_name,
-                launch_configuration_name: launch_configuration_name
-              })
+            autoscaling.update_auto_scaling_group({
+              auto_scaling_group_name: autoscaling_group_name,
+              launch_configuration_name: launch_configuration_name
+            })
             info "Finished updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{launch_configuration_name}"
 
             # Delete old launch configuration
