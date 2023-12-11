@@ -122,6 +122,9 @@ namespace :deploy do
                 security_group_ids: [
                   fetch(:security_group)
                 ],
+                metadata_options: {
+                  instance_metadata_tags: "enabled"
+                },
                 ebs_optimized: false
               }
             })
