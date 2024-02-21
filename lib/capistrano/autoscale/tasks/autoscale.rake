@@ -107,24 +107,39 @@ namespace :deploy do
             # Create launch template version from new AMI
             info "Starting create launch template new version"
             version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
+
+            info "Getting launch template data..."
+            launch_template_single_version = ec2.describe_launch_template_versions({
+              launch_template_id: fetch(:autoscaling_launch_template_id),
+              versions: ["$Default"]
+            }).launch_template_versions.first
+            info "- launch template id: #{launch_template_single_version.launch_template_id}"
+            iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile.name
+            info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
+            security_groups = launch_template_single_version.launch_template_data.security_group_ids
+            info "- launch template versions security groups: #{security_groups.join(', ')}"
+            key_name = launch_template_single_version.launch_template_data.key_name
+            info "- launch template versions key name: #{key_name}"
+            tag_specifications = launch_template_single_version.launch_template_data.tag_specifications
+
             resp = ec2.create_launch_template_version({
               launch_template_id: fetch(:autoscaling_launch_template_id),
               version_description: version_name,
               launch_template_data: {
                 image_id: new_ami.image_id,
                 instance_type: fetch(:instance_type),
+                key_name: key_name,
                 iam_instance_profile: {
-                  name: 'autoscaling-iam'
+                  name: iam_instance_profile_name
                 },
                 monitoring: {
                   enabled: true
                 },
-                security_group_ids: [
-                  fetch(:security_group)
-                ],
+                security_group_ids: security_groups,
                 metadata_options: {
                   instance_metadata_tags: "enabled"
                 },
+                tag_specifications: tag_specifications,
                 ebs_optimized: false
               }
             })
