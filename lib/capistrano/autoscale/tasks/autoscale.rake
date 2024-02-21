@@ -121,7 +121,7 @@ namespace :deploy do
             info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
             key_name = launch_template_single_version.launch_template_data.key_name
             info "- launch template versions key name: #{key_name}"
-            tag_specifications = launch_template_single_version.launch_template_data.tag_specifications
+            tag_specifications = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
 
 
             resp = ec2.create_launch_template_version({
