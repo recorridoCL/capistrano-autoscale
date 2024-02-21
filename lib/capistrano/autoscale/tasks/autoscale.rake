@@ -115,13 +115,14 @@ namespace :deploy do
             }).launch_template_versions.first
             info "- launch template id: #{launch_template_single_version.launch_template_id}"
             info "- launch template chosen version number: #{launch_template_single_version.version_number}"
-            iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
+            security_groups = launch_template_single_version.launch_template_data.security_group_ids
             info "- launch template versions security groups: #{security_groups.join(', ')}"
+            iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
+            info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
             key_name = launch_template_single_version.launch_template_data.key_name
             info "- launch template versions key name: #{key_name}"
             tag_specifications = launch_template_single_version.launch_template_data.tag_specifications
-            info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
-            security_groups = launch_template_single_version.launch_template_data.security_group_ids
+
 
             resp = ec2.create_launch_template_version({
               launch_template_id: fetch(:autoscaling_launch_template_id),
