@@ -121,7 +121,7 @@ namespace :deploy do
             info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
             key_name = launch_template_single_version.launch_template_data.key_name
             info "- launch template versions key name: #{key_name}"
-            tag_specifications = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
+            tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
 
             lt_request_params = {
               launch_template_id: fetch(:autoscaling_launch_template_id),
@@ -139,11 +139,11 @@ namespace :deploy do
                 metadata_options: {
                   instance_metadata_tags: "enabled"
                 },
-                tag_specifications: tag_specifications,
                 ebs_optimized: false
               }
             }
             lt_request_params[:launch_template_data][:key_name] = key_name if key_name
+            lt_request_params[:launch_template_data][:tag_specifications] = tag_specs if tag_specs.any?
             info "- launch template params: #{lt_request_params.to_h}"
 
             resp = ec2.create_launch_template_version(lt_request_params)
