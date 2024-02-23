@@ -123,14 +123,12 @@ namespace :deploy do
             info "- launch template versions key name: #{key_name}"
             tag_specifications = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
 
-
-            resp = ec2.create_launch_template_version({
+            lt_request_params = {
               launch_template_id: fetch(:autoscaling_launch_template_id),
               version_description: version_name,
               launch_template_data: {
                 image_id: new_ami.image_id,
                 instance_type: fetch(:instance_type),
-                key_name: key_name,
                 iam_instance_profile: {
                   name: iam_instance_profile_name || "autoscaling-iam"
                 },
@@ -144,7 +142,11 @@ namespace :deploy do
                 tag_specifications: tag_specifications,
                 ebs_optimized: false
               }
-            })
+            }
+            lt_request_params[:launch_template_data][:key_name] = key_name if key_name
+            info "- launch template params: #{lt_request_params.to_h}"
+
+            resp = ec2.create_launch_template_version(lt_request_params)
 
             new_template_version_number = resp.launch_template_version.version_number
             info "Finished create launch template new version (V. Number: #{new_template_version_number})"
