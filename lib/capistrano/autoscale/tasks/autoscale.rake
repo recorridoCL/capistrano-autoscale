@@ -107,27 +107,46 @@ namespace :deploy do
             # Create launch template version from new AMI
             info "Starting create launch template new version"
             version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
-            resp = ec2.create_launch_template_version({
+
+            info "Getting launch template data..."
+            launch_template_single_version = ec2.describe_launch_template_versions({
+              launch_template_id: fetch(:autoscaling_launch_template_id),
+              versions: ["$Default"]
+            }).launch_template_versions.first
+            info "- launch template id: #{launch_template_single_version.launch_template_id}"
+            info "- launch template chosen version number: #{launch_template_single_version.version_number}"
+            security_groups = launch_template_single_version.launch_template_data.security_group_ids
+            info "- launch template versions security groups: #{security_groups.join(', ')}"
+            iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
+            info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
+            key_name = launch_template_single_version.launch_template_data.key_name
+            info "- launch template versions key name: #{key_name}"
+            tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
+
+            lt_request_params = {
               launch_template_id: fetch(:autoscaling_launch_template_id),
               version_description: version_name,
               launch_template_data: {
                 image_id: new_ami.image_id,
                 instance_type: fetch(:instance_type),
                 iam_instance_profile: {
-                  name: 'autoscaling-iam'
+                  name: iam_instance_profile_name || "autoscaling-iam"
                 },
                 monitoring: {
                   enabled: true
                 },
-                security_group_ids: [
-                  fetch(:security_group)
-                ],
+                security_group_ids: security_groups,
                 metadata_options: {
                   instance_metadata_tags: "enabled"
                 },
                 ebs_optimized: false
               }
-            })
+            }
+            lt_request_params[:launch_template_data][:key_name] = key_name if key_name
+            lt_request_params[:launch_template_data][:tag_specifications] = tag_specs if tag_specs.any?
+            info "- launch template params: #{lt_request_params.to_h}"
+
+            resp = ec2.create_launch_template_version(lt_request_params)
 
             new_template_version_number = resp.launch_template_version.version_number
             info "Finished create launch template new version (V. Number: #{new_template_version_number})"
