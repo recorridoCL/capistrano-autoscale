@@ -101,106 +101,59 @@ namespace :deploy do
               })
           info "Finished create AMI #{new_ami.image_id}"
 
-          launch_templates_enabled = fetch(:autoscaling_launch_templates_enabled)
+          # Create launch template version from new AMI
+          info "Starting create launch template new version"
+          version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
 
-          if launch_templates_enabled
-            # Create launch template version from new AMI
-            info "Starting create launch template new version"
-            version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
+          info "Getting launch template data..."
+          launch_template_single_version = ec2.describe_launch_template_versions({
+            launch_template_id: fetch(:autoscaling_launch_template_id),
+            versions: ["$Default"]
+          }).launch_template_versions.first
+          info "- launch template id: #{launch_template_single_version.launch_template_id}"
+          info "- launch template chosen version number: #{launch_template_single_version.version_number}"
+          security_groups = launch_template_single_version.launch_template_data.security_group_ids
+          info "- launch template versions security groups: #{security_groups.join(', ')}"
+          iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
+          info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
+          key_name = launch_template_single_version.launch_template_data.key_name
+          info "- launch template versions key name: #{key_name}"
+          tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
 
-            info "Getting launch template data..."
-            launch_template_single_version = ec2.describe_launch_template_versions({
-              launch_template_id: fetch(:autoscaling_launch_template_id),
-              versions: ["$Default"]
-            }).launch_template_versions.first
-            info "- launch template id: #{launch_template_single_version.launch_template_id}"
-            info "- launch template chosen version number: #{launch_template_single_version.version_number}"
-            security_groups = launch_template_single_version.launch_template_data.security_group_ids
-            info "- launch template versions security groups: #{security_groups.join(', ')}"
-            iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
-            info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
-            key_name = launch_template_single_version.launch_template_data.key_name
-            info "- launch template versions key name: #{key_name}"
-            tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
-
-            lt_request_params = {
-              launch_template_id: fetch(:autoscaling_launch_template_id),
-              version_description: version_name,
-              launch_template_data: {
-                image_id: new_ami.image_id,
-                instance_type: fetch(:instance_type),
-                iam_instance_profile: {
-                  name: iam_instance_profile_name || "autoscaling-iam"
-                },
-                monitoring: {
-                  enabled: true
-                },
-                security_group_ids: security_groups,
-                metadata_options: {
-                  instance_metadata_tags: "enabled"
-                },
-                ebs_optimized: false
-              }
-            }
-            lt_request_params[:launch_template_data][:key_name] = key_name if key_name
-            lt_request_params[:launch_template_data][:tag_specifications] = tag_specs if tag_specs.any?
-            info "- launch template params: #{lt_request_params.to_h}"
-
-            resp = ec2.create_launch_template_version(lt_request_params)
-
-            new_template_version_number = resp.launch_template_version.version_number
-            info "Finished create launch template new version (V. Number: #{new_template_version_number})"
-
-            # Update autoscaling group
-            info "Setting new version as default in the launch template"
-            ec2.modify_launch_template({
-              launch_template_id: fetch(:autoscaling_launch_template_id),
-              default_version: new_template_version_number.to_s
-            })
-          else
-            # List images
-            old_amis = ec2.describe_images({owners: ['824916716342']}).images.select {|s| s['name'].downcase.include?("#{deployment_env}-autoscale")}.map {|h| {name: h['name'], image_id: h['image_id']}}
-            old_ami = old_amis.sort_by { |h| h[:name] }.first
-            old_ami_image_id = old_ami[:image_id]
-
-            # Delete old AMI
-            info "Starting deleting old AMI: #{old_ami_image_id}"
-            ec2.deregister_image({
-              image_id: old_ami_image_id,
-              dry_run: false,
-            })
-            info "Finished delete old AMI: #{old_ami_image_id}"
-
-            # Create launch configuration
-            info "Starting create launch configuration"
-            launch_configuration_name = "Autoscale-#{deployment_env}-launch-#{date_now}"
-            autoscaling.create_launch_configuration({
-              iam_instance_profile: "autoscaling-iam",
+          lt_request_params = {
+            launch_template_id: fetch(:autoscaling_launch_template_id),
+            version_description: version_name,
+            launch_template_data: {
               image_id: new_ami.image_id,
               instance_type: fetch(:instance_type),
-              launch_configuration_name: launch_configuration_name,
-              security_groups: [
-                fetch(:security_group),
-              ],
-            })
-            info "Finished create launch configuration #{launch_configuration_name}"
+              iam_instance_profile: {
+                name: iam_instance_profile_name || "autoscaling-iam"
+              },
+              monitoring: {
+                enabled: true
+              },
+              security_group_ids: security_groups,
+              metadata_options: {
+                instance_metadata_tags: "enabled"
+              },
+              ebs_optimized: false
+            }
+          }
+          lt_request_params[:launch_template_data][:key_name] = key_name if key_name
+          lt_request_params[:launch_template_data][:tag_specifications] = tag_specs if tag_specs.any?
+          info "- launch template params: #{lt_request_params.to_h}"
 
-            # List launch configurations
-            old_launch_configuration = autoscaling.describe_launch_configurations.launch_configurations.select {|h| h['image_id'] == old_ami_image_id}[0].launch_configuration_name
+          resp = ec2.create_launch_template_version(lt_request_params)
 
-            # Update autoscaling group
-            info "Starting updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{old_launch_configuration}"
-            autoscaling.update_auto_scaling_group({
-              auto_scaling_group_name: autoscaling_group_name,
-              launch_configuration_name: launch_configuration_name
-            })
-            info "Finished updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{launch_configuration_name}"
+          new_template_version_number = resp.launch_template_version.version_number
+          info "Finished create launch template new version (V. Number: #{new_template_version_number})"
 
-            # Delete old launch configuration
-            info "Starting removing old launch configuration #{old_launch_configuration}"
-            autoscaling.delete_launch_configuration({launch_configuration_name: old_launch_configuration})
-            info "Finished removing old launch configuration #{old_launch_configuration}"
-          end
+          # Update autoscaling group
+          info "Setting new version as default in the launch template"
+          ec2.modify_launch_template({
+            launch_template_id: fetch(:autoscaling_launch_template_id),
+            default_version: new_template_version_number.to_s
+          })
         end
       end
     end
