@@ -61,13 +61,36 @@ namespace :deploy do
           autoscaling = ::Aws::AutoScaling::Client.new
           autoscaling_group_name = fetch(:autoscaling_group_name)
 
-          instances = autoscaling.describe_auto_scaling_groups(
+          autoscaling_group_response = autoscaling.describe_auto_scaling_groups(
               {
                   auto_scaling_group_names: [
                       autoscaling_group_name
                   ]
               }
-          ).auto_scaling_groups[0].instances.map {|h| h['instance_id']}
+          )
+          autoscaling_group = autoscaling_group_response.auto_scaling_groups[0]
+          instances = autoscaling_group.instances.map {|h| h['instance_id']}
+
+          # Extract launch template ID from autoscaling group
+          launch_template_id =
+            if autoscaling_group.launch_template
+              # Try method access first (SDK v1 structure)
+              lt = autoscaling_group.launch_template
+              lt.launch_template_id || lt['launch_template_id'] || lt[:launch_template_id]
+            elsif autoscaling_group['launch_template']
+              # Fallback to hash access
+              lt = autoscaling_group['launch_template']
+              lt['launch_template_id'] || lt[:launch_template_id]
+            else
+              # Fallback to config variable if not found in ASG
+              fetch(:autoscaling_launch_template_id, nil)
+            end
+
+          if launch_template_id.nil?
+            raise "Launch template ID not found in Auto Scaling Group '#{autoscaling_group_name}' and not provided via :autoscaling_launch_template_id config"
+          end
+
+          info "Using launch template ID: #{launch_template_id}"
 
           # Create AMI
           info "Starting creating AMI"
@@ -107,7 +130,7 @@ namespace :deploy do
 
           info "Getting launch template data..."
           launch_template_single_version = ec2.describe_launch_template_versions({
-            launch_template_id: fetch(:autoscaling_launch_template_id),
+            launch_template_id: launch_template_id,
             versions: ["$Default"]
           }).launch_template_versions.first
           info "- launch template id: #{launch_template_single_version.launch_template_id}"
@@ -121,7 +144,7 @@ namespace :deploy do
           tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
 
           lt_request_params = {
-            launch_template_id: fetch(:autoscaling_launch_template_id),
+            launch_template_id: launch_template_id,
             version_description: version_name,
             launch_template_data: {
               image_id: new_ami.image_id,
@@ -151,7 +174,7 @@ namespace :deploy do
           # Update autoscaling group
           info "Setting new version as default in the launch template"
           ec2.modify_launch_template({
-            launch_template_id: fetch(:autoscaling_launch_template_id),
+            launch_template_id: launch_template_id,
             default_version: new_template_version_number.to_s
           })
         end
