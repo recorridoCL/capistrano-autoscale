@@ -72,24 +72,7 @@ namespace :deploy do
           instances = autoscaling_group.instances.map {|h| h['instance_id']}
 
           # Extract launch template ID from autoscaling group
-          launch_template_id =
-            if autoscaling_group.launch_template
-              # Try method access first (SDK v1 structure)
-              lt = autoscaling_group.launch_template
-              lt.launch_template_id || lt['launch_template_id'] || lt[:launch_template_id]
-            elsif autoscaling_group['launch_template']
-              # Fallback to hash access
-              lt = autoscaling_group['launch_template']
-              lt['launch_template_id'] || lt[:launch_template_id]
-            else
-              # Fallback to config variable if not found in ASG
-              fetch(:autoscaling_launch_template_id, nil)
-            end
-
-          if launch_template_id.nil?
-            raise "Launch template ID not found in Auto Scaling Group '#{autoscaling_group_name}' and not provided via :autoscaling_launch_template_id config"
-          end
-
+          launch_template_id = Capistrano::Autoscale::AwsUtils.extract_launch_template_id(autoscaling_group)
           info "Using launch template ID: #{launch_template_id}"
 
           # Create AMI
