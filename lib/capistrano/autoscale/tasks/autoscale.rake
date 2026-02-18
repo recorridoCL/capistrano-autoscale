@@ -9,14 +9,21 @@ namespace :deploy do
 
           loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
 
-          instances = fetch(:instances)
-          info "Adding instances #{instances}"
+          autoscaling_group_name = fetch(:autoscaling_group_name)
+          autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
+          tg_arn = autoscaling_group.target_group_arn
 
-          loadbalancer.register_targets(
-              {
-                  target_group_arn: fetch(:autoscaling_target_group_arn),
-                  targets: instances
-              })
+          if tg_arn.present?
+            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
+          else
+            tg_arn = fetch(:autoscaling_target_group_arn)
+            info 'using default target group arn from capistrano config'
+          end
+
+          instances = fetch(:instances)
+          info "Adding instances #{instances} to target group: #{tg_arn}"
+
+          loadbalancer.register_targets(target_group_arn: tg_arn, targets: instances)
           sleep 20
         end
       end
@@ -33,14 +40,21 @@ namespace :deploy do
 
           loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
 
-          instances = fetch(:instances)
-          info "Removing instances #{instances}"
+          autoscaling_group_name = fetch(:autoscaling_group_name)
+          autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
+          tg_arn = autoscaling_group.target_group_arn
 
-          loadbalancer.deregister_targets(
-              {
-                  target_group_arn: fetch(:autoscaling_target_group_arn),
-                  targets: instances
-              })
+          if tg_arn.present?
+            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
+          else
+            tg_arn = fetch(:autoscaling_target_group_arn)
+            info 'using default target group arn from capistrano config'
+          end
+
+          instances = fetch(:instances)
+          info "Removing instances #{instances} from target group: #{tg_arn}"
+
+          loadbalancer.deregister_targets(target_group_arn: tg_arn, targets: instances)
         end
       end
     end
@@ -58,17 +72,7 @@ namespace :deploy do
           date_now = Time.now.strftime('%d-%m-%Y %H.%M')
 
           ec2 = ::Aws::EC2::Client.new
-          autoscaling = ::Aws::AutoScaling::Client.new
-          autoscaling_group_name = fetch(:autoscaling_group_name)
-
-          autoscaling_group_response = autoscaling.describe_auto_scaling_groups(
-              {
-                  auto_scaling_group_names: [
-                      autoscaling_group_name
-                  ]
-              }
-          )
-          autoscaling_group = autoscaling_group_response.auto_scaling_groups[0]
+          autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(fetch(:autoscaling_group_name))
           instances = autoscaling_group.instances.map {|h| h['instance_id']}
 
           # Extract launch template ID from autoscaling group

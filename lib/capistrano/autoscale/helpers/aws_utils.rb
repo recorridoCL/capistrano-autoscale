@@ -50,6 +50,20 @@ module Capistrano
 
         launch_template_id
       end
+
+      def self.fetch_autoscaling_group(autoscaling_group_name)
+        autoscaling = ::Aws::AutoScaling::Client.new
+        response = autoscaling.describe_auto_scaling_groups(
+          auto_scaling_group_names: [autoscaling_group_name]
+        )
+        autoscaling_group = response.auto_scaling_groups&.first
+
+        if autoscaling_group.nil?
+          raise "Auto Scaling Group '#{autoscaling_group_name}' not found"
+        end
+
+        autoscaling_group
+      end
     end
   end
 end
