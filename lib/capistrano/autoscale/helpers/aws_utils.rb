@@ -2,9 +2,17 @@ module Capistrano
   module Autoscale
     class AwsUtils
       include Capistrano::DSL
+      def self.configure_aws(region:, access_key:, secret_key:)
+        ::Aws.config[:region] = region
+        ::Aws.config[:credentials] = ::Aws::Credentials.new(access_key, secret_key)
+      end
+
       def self.fetch_ec2_instances(type)
-        ::Aws.config[:region] = fetch(:aws_region)
-        ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+        configure_aws(
+          region: fetch(:aws_region),
+          access_key: fetch(:aws_access_owner_id),
+          secret_key: fetch(:aws_secret_owner_access_key)
+        )
 
         loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
         ec2 = ::Aws::EC2::Client.new

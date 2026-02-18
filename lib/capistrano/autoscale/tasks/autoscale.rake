@@ -4,8 +4,11 @@ namespace :deploy do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
-          ::Aws.config[:region] = fetch(:aws_region)
-          ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+          Capistrano::Autoscale::AwsUtils.configure_aws(
+            region: fetch(:aws_region),
+            access_key: fetch(:aws_access_owner_id),
+            secret_key: fetch(:aws_secret_owner_access_key)
+          )
 
           loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
 
@@ -35,8 +38,11 @@ namespace :deploy do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
-          ::Aws.config[:region] = fetch(:aws_region)
-          ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+          Capistrano::Autoscale::AwsUtils.configure_aws(
+            region: fetch(:aws_region),
+            access_key: fetch(:aws_access_owner_id),
+            secret_key: fetch(:aws_secret_owner_access_key)
+          )
 
           loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
 
@@ -66,8 +72,11 @@ namespace :deploy do
       within release_path do
         with rails_env: fetch(:rails_env) do
           deployment_env = fetch(:deployment_env)
-          ::Aws.config[:region] = fetch(:aws_region)
-          ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+          Capistrano::Autoscale::AwsUtils.configure_aws(
+            region: fetch(:aws_region),
+            access_key: fetch(:aws_access_owner_id),
+            secret_key: fetch(:aws_secret_owner_access_key)
+          )
 
           date_now = Time.now.strftime('%d-%m-%Y %H.%M')
 
