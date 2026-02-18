@@ -14,7 +14,7 @@ namespace :deploy do
 
           autoscaling_group_name = fetch(:autoscaling_group_name)
           autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
-          tg_arn = autoscaling_group.target_group_arn
+          tg_arn = autoscaling_group.target_group_arns.first
 
           if tg_arn.present?
             info "using target group arn from autoscaling group: #{autoscaling_group_name}"
@@ -48,7 +48,7 @@ namespace :deploy do
 
           autoscaling_group_name = fetch(:autoscaling_group_name)
           autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
-          tg_arn = autoscaling_group.target_group_arn
+          tg_arn = autoscaling_group.target_group_arns.first
 
           if tg_arn.present?
             info "using target group arn from autoscaling group: #{autoscaling_group_name}"
