@@ -18,15 +18,15 @@ module Capistrano
         ec2 = ::Aws::EC2::Client.new
 
         loadbalancer_data = loadbalancer.describe_target_health({
-                                                                    target_group_arn: fetch(:autoscaling_target_group_arn)
-                                                                })
+          target_group_arn: fetch(:autoscaling_target_group_arn)
+        })
 
-        instances_ids = loadbalancer_data.target_health_descriptions.map{|h| h.target.id}.sort
+        instances_ids = loadbalancer_data.target_health_descriptions.map { |h| h.target.id }.sort
 
-        type_instances = instances_ids.values_at(* instances_ids.each_index.select {|i| i.send("#{type}?")})
-        description_instances = ec2.describe_instances({instance_ids: type_instances}).reservations
+        type_instances = instances_ids.values_at(*instances_ids.each_index.select { |i| i.send("#{type}?") })
+        description_instances = ec2.describe_instances({ instance_ids: type_instances }).reservations
 
-        instances = description_instances.map{|h| h.instances.map {|i| {instance_id: i.instance_id, private_ip_address: i.private_ip_address}}}.flatten
+        instances = description_instances.map { |h| h.instances.map { |i| { instance_id: i.instance_id, private_ip_address: i.private_ip_address } } }.flatten
 
         puts "Found #{type} #{instances.count} servers (#{instances.join(',')})"
 

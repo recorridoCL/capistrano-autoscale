@@ -91,33 +91,32 @@ namespace :deploy do
           # Create AMI
           info "Starting creating AMI"
           new_ami = ec2.create_image(
+            block_device_mappings: [
               {
-                  block_device_mappings: [
-                      {
-                          device_name: '/dev/sda1',
-                          ebs: {
-                              encrypted: false,
-                              delete_on_termination: true,
-                              volume_size: fetch(:volume_sizes)[0],
-                              volume_type: 'gp2',
-                          }
-                      },
-                      {
-                          device_name: '/dev/sdf',
-                          ebs: {
-                              encrypted: false,
-                              delete_on_termination: true,
-                              volume_size: fetch(:volume_sizes)[1],
-                              volume_type: 'gp2',
-                          }
-                      }
-                  ],
-                  description: "#{deployment_env} autoscale with ebs termination #{date_now}",
-                  dry_run: false,
-                  instance_id: instances.last,
-                  name: "#{deployment_env}-autoscale #{date_now}",
-                  no_reboot: true,
-              })
+                device_name: '/dev/sda1',
+                ebs: {
+                  encrypted: false,
+                  delete_on_termination: true,
+                  volume_size: fetch(:volume_sizes)[0],
+                  volume_type: 'gp2'
+                }
+              },
+              {
+                device_name: '/dev/sdf',
+                ebs: {
+                  encrypted: false,
+                  delete_on_termination: true,
+                  volume_size: fetch(:volume_sizes)[1],
+                  volume_type: 'gp2'
+                }
+              }
+            ],
+            description: "#{deployment_env} autoscale with ebs termination #{date_now}",
+            dry_run: false,
+            instance_id: instances.last,
+            name: "#{deployment_env}-autoscale #{date_now}",
+            no_reboot: true
+          )
           info "Finished create AMI #{new_ami.image_id}"
 
           # Create launch template version from new AMI
@@ -125,10 +124,10 @@ namespace :deploy do
           version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
 
           info "Getting launch template data..."
-          launch_template_single_version = ec2.describe_launch_template_versions({
+          launch_template_single_version = ec2.describe_launch_template_versions(
             launch_template_id: launch_template_id,
             versions: ["$Default"]
-          }).launch_template_versions.first
+          ).launch_template_versions.first
           info "- launch template id: #{launch_template_single_version.launch_template_id}"
           info "- launch template chosen version number: #{launch_template_single_version.version_number}"
           security_groups = launch_template_single_version.launch_template_data.security_group_ids
@@ -137,7 +136,7 @@ namespace :deploy do
           info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
           key_name = launch_template_single_version.launch_template_data.key_name
           info "- launch template versions key name: #{key_name}"
-          tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
+          tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map { |ts| ts.to_h }
 
           lt_request_params = {
             launch_template_id: launch_template_id,
@@ -169,10 +168,10 @@ namespace :deploy do
 
           # Update autoscaling group
           info "Setting new version as default in the launch template"
-          ec2.modify_launch_template({
+          ec2.modify_launch_template(
             launch_template_id: launch_template_id,
             default_version: new_template_version_number.to_s
-          })
+          )
         end
       end
     end
