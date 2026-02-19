@@ -14,13 +14,13 @@ namespace :deploy do
 
           autoscaling_group_name = fetch(:autoscaling_group_name)
           autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
-          tg_arn = autoscaling_group.target_group_arns.first
+          tg_arn = autoscaling_group.target_group_arns&.first
 
-          if tg_arn.present?
-            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
-          else
+          if tg_arn.nil? || tg_arn.empty?
             tg_arn = fetch(:autoscaling_target_group_arn)
             info 'using default target group arn from capistrano config'
+          else
+            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
           end
 
           instances = fetch(:instances)
@@ -48,13 +48,13 @@ namespace :deploy do
 
           autoscaling_group_name = fetch(:autoscaling_group_name)
           autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
-          tg_arn = autoscaling_group.target_group_arns.first
+          tg_arn = autoscaling_group.target_group_arns&.first
 
-          if tg_arn.present?
-            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
-          else
+          if tg_arn.nil? || tg_arn.empty?
             tg_arn = fetch(:autoscaling_target_group_arn)
             info 'using default target group arn from capistrano config'
+          else
+            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
           end
 
           instances = fetch(:instances)
