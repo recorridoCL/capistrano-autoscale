@@ -7,7 +7,7 @@ module Capistrano
         ::Aws.config[:credentials] = ::Aws::Credentials.new(access_key, secret_key)
       end
 
-      def self.fetch_ec2_instances(type)
+      def self.fetch_all_ec2_instances
         configure_aws(
           region: fetch(:aws_region),
           access_key: fetch(:aws_access_owner_id),
@@ -22,17 +22,27 @@ module Capistrano
         tg_arn = autoscaling_group.target_group_arns&.first
 
         loadbalancer_data = loadbalancer.describe_target_health(target_group_arn: tg_arn)
+        instances_ids = loadbalancer_data.target_health_descriptions.map{|h| h.target.id}.sort
+        return [] if instances_ids.empty?
 
-        instances_ids = loadbalancer_data.target_health_descriptions.map { |h| h.target.id }.sort
+        description_instances = ec2.describe_instances({instance_ids: instances_ids}).reservations
 
-        type_instances = instances_ids.values_at(*instances_ids.each_index.select { |i| i.send("#{type}?") })
-        description_instances = ec2.describe_instances({ instance_ids: type_instances }).reservations
+        instances = description_instances.map{|h| h.instances.map {|i| {instance_id: i.instance_id, private_ip_address: i.private_ip_address}}}.flatten
+        instances_by_id = instances.each_with_object({}) do |instance, memo|
+          memo[instance[:instance_id]] = instance
+        end
 
-        instances = description_instances.map { |h| h.instances.map { |i| { instance_id: i.instance_id, private_ip_address: i.private_ip_address } } }.flatten
+        instances_ids.map { |id| instances_by_id[id] }.compact
+      end
 
-        puts "Found #{type} #{instances.count} servers (#{instances.join(',')})"
+      def self.fetch_ec2_instances(type)
+        instances = fetch_all_ec2_instances
 
-        instances
+        selected_instances = instances.values_at(* instances.each_index.select {|i| i.send("#{type}?")})
+
+        puts "Found #{type} #{selected_instances.count} servers (#{selected_instances.join(',')})"
+
+        selected_instances
       end
 
       def self.extract_launch_template_id(autoscaling_group)
