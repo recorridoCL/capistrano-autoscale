@@ -16,13 +16,6 @@ namespace :deploy do
           autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
           tg_arn = autoscaling_group.target_group_arns&.first
 
-          if tg_arn.nil? || tg_arn.empty?
-            tg_arn = fetch(:autoscaling_target_group_arn)
-            info 'using default target group arn from capistrano config'
-          else
-            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
-          end
-
           instances = fetch(:instances)
           info "Adding instances #{instances} to target group: #{tg_arn}"
 
@@ -49,13 +42,6 @@ namespace :deploy do
           autoscaling_group_name = fetch(:autoscaling_group_name)
           autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
           tg_arn = autoscaling_group.target_group_arns&.first
-
-          if tg_arn.nil? || tg_arn.empty?
-            tg_arn = fetch(:autoscaling_target_group_arn)
-            info 'using default target group arn from capistrano config'
-          else
-            info "using target group arn from autoscaling group: #{autoscaling_group_name}"
-          end
 
           instances = fetch(:instances)
           info "Removing instances #{instances} from target group: #{tg_arn}"

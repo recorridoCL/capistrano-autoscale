@@ -17,9 +17,11 @@ module Capistrano
         loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
         ec2 = ::Aws::EC2::Client.new
 
-        loadbalancer_data = loadbalancer.describe_target_health({
-          target_group_arn: fetch(:autoscaling_target_group_arn)
-        })
+        autoscaling_group_name = fetch(:autoscaling_group_name)
+        autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
+        tg_arn = autoscaling_group.target_group_arns&.first
+
+        loadbalancer_data = loadbalancer.describe_target_health(target_group_arn: tg_arn)
 
         instances_ids = loadbalancer_data.target_health_descriptions.map { |h| h.target.id }.sort
 
@@ -34,26 +36,18 @@ module Capistrano
       end
 
       def self.extract_launch_template_id(autoscaling_group)
-        # Extract launch template ID from autoscaling group
         launch_template_id =
           if autoscaling_group.launch_template
             puts "Using launch template ID from SDK v1 structure"
-            # Try method access first (SDK v1 structure)
             lt = autoscaling_group.launch_template
             lt.launch_template_id || lt['launch_template_id'] || lt[:launch_template_id]
-          elsif autoscaling_group['launch_template']
-            # Fallback to hash access
-            puts "Using launch template ID from hash structure"
-            lt = autoscaling_group['launch_template']
-            lt['launch_template_id'] || lt[:launch_template_id]
           else
-            # Fallback to config variable if not found in ASG
             puts "Using launch template ID from capistrano config variable"
             fetch(:autoscaling_launch_template_id, nil)
           end
 
         if launch_template_id.nil?
-          raise 'Launch template ID not found in Auto Scaling Group and not provided via :autoscaling_launch_template_id config'
+          raise 'Launch template ID not found neither in ASG or via :autoscaling_launch_template_id config'
         end
 
         launch_template_id

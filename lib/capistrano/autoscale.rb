@@ -6,7 +6,6 @@ require 'capistrano/autoscale/helpers/aws_utils'
 
 load File.expand_path('../autoscale/tasks/autoscale.rake', __FILE__)
 
-
 def setup_servers
   puts "Search instances to deploy"
   ec2_instances = Capistrano::Autoscale::AwsUtils.fetch_ec2_instances(fetch(:instance_order))
