@@ -163,3 +163,54 @@ namespace :deploy do
     end
   end
 end
+
+namespace :autoscaled do
+  desc "Autoscale deploy wrapper to deploy standalone or blue/green deploy (with register/deregister instances and ami creation if needed)"
+  task :deploy do
+    stage = fetch(:stage).to_s                 # e.g. "production"
+    asg_name = fetch(:autoscaling_group_name)  # set this in deploy/<env>.rb
+    min_for_blue_green = fetch(:blue_green_min_instances, 2)
+
+    # Determine current instance count from the target group (to select the deploy strategy)
+    ec2_instances = Capistrano::Autoscale::AwsUtils.fetch_all_ec2_instances
+    instance_count = ec2_instances.count
+
+    if instance_count < min_for_blue_green
+      info "ASG #{asg_name} has #{instance_count} instance(s) (min=#{min_for_blue_green}). Running normal deploy on #{stage}."
+      invoke 'deploy' # regular deploy for this env
+      next
+    end
+
+    info "ASG #{asg_name} has #{instance_count} instances, running blue/green deploy."
+    invoke 'autoscaled:blue_green_deploy'
+  end
+
+  desc "Run blue/green deploy waves using instance_order overrides"
+  task :blue_green_deploy do
+    stage = fetch(:stage).to_s
+
+    # Orders to deploy in sequence (default: even then odd)
+    orders = fetch(:blue_green_orders, %w[even odd])
+
+    info "Starting blue/green deploy waves for stage #{stage} (orders: #{orders.join(', ')})"
+
+    orders.each do |order|
+      info "Deploying #{order} instances..."
+      run_locally do
+        with 'INSTANCE_ORDER' => order do
+          execute :bundle, :exec, :cap, stage, 'deploy'
+        end
+      end
+    end
+
+    # Optionally bake a new AMI after both waves
+    if fetch(:blue_green_create_ami, true)
+      info "Creating new AMI after blue/green deploy..."
+      run_locally do
+        execute :bundle, :exec, :cap, stage, 'deploy:new_ami_configuration'
+      end
+    end
+
+    info "Blue/green deploy finished for #{stage}."
+  end
+end
