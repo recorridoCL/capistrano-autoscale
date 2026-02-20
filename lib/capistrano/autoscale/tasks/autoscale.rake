@@ -198,32 +198,32 @@ namespace :autoscaled do
       puts "Deploying #{order} instances..."
 
       puts "Deregistering #{order} instances from load balancer..."
-      run_locally do
-        with 'INSTANCE_ORDER' => order do
-          execute :bundle, :exec, :cap, stage, 'deploy:deregister_instances_from_load_balancer'
-        end
-      end
-
-      run_locally do
-        with 'INSTANCE_ORDER' => order do
-          execute :bundle, :exec, :cap, stage, 'deploy'
-        end
-      end
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy:deregister_instances_from_load_balancer',
+        instance_order: order
+      )
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy',
+        instance_order: order
+      )
 
       puts "Registering #{order} instances back into load balancer..."
-      run_locally do
-        with 'INSTANCE_ORDER' => order do
-          execute :bundle, :exec, :cap, stage, 'deploy:register_instances_in_load_balancer'
-        end
-      end
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy:register_instances_in_load_balancer',
+        instance_order: order
+      )
     end
 
     # Optionally bake a new AMI after both waves
     if fetch(:blue_green_create_ami, true)
       puts "Creating new AMI after blue/green deploy..."
-      run_locally do
-        execute :bundle, :exec, :cap, stage, 'deploy:new_ami_configuration'
-      end
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy:new_ami_configuration'
+      )
     end
 
     puts "Blue/green deploy finished for #{stage}."
