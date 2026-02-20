@@ -185,7 +185,7 @@ namespace :autoscaled do
     invoke 'autoscaled:blue_green_deploy'
   end
 
-  desc "Run blue/green deploy waves using instance_order overrides"
+  desc "Run blue/green deploy waves using instance_order overrides and LB registration"
   task :blue_green_deploy do
     stage = fetch(:stage).to_s
 
@@ -196,9 +196,24 @@ namespace :autoscaled do
 
     orders.each do |order|
       info "Deploying #{order} instances..."
+
+      info "Deregistering #{order} instances from load balancer..."
+      run_locally do
+        with 'INSTANCE_ORDER' => order do
+          execute :bundle, :exec, :cap, stage, 'deploy:deregister_instances_from_load_balancer'
+        end
+      end
+
       run_locally do
         with 'INSTANCE_ORDER' => order do
           execute :bundle, :exec, :cap, stage, 'deploy'
+        end
+      end
+
+      info "Registering #{order} instances back into load balancer..."
+      run_locally do
+        with 'INSTANCE_ORDER' => order do
+          execute :bundle, :exec, :cap, stage, 'deploy:register_instances_in_load_balancer'
         end
       end
     end

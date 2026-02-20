@@ -66,13 +66,9 @@ bundle exec cap production autoscaled:deploy
 El wrapper detecta que no hay instancias suficientes y ejecuta `deploy` normal.
 
 ### Blue/green por paridad
-Con 2 o más instances en el target group:
-```bash
-bundle exec cap production autoscaled:deploy
-```
-El wrapper:
+Con 2 o más instances en el target group, el wrapper:
 1) Cuenta instances del target group.
-2) Si hay suficientes, corre waves en secuencia (`blue_green_orders`, default `even` luego `odd`), pasando `INSTANCE_ORDER` a cada wave.
+2) Si hay suficientes, corre waves en secuencia (`blue_green_orders`, default `even` luego `odd`), pasando `INSTANCE_ORDER` a cada wave. Entre cada wave, va deregistrando/registrando las instancias correspondientes.
 3) Al finalizar las waves, opcionalmente ejecuta `deploy:new_ami_configuration` (controlado por `blue_green_create_ami`).
 
 Puedes forzar el orden en runtime:
@@ -90,7 +86,7 @@ INSTANCE_ORDER=odd bundle exec cap production deploy
 - `deploy:new_ami_configuration`: crea AMI desde una instance del ASG, genera nueva versión del Launch Template y la deja como default (requiere `:volume_sizes`, `:instance_type`, `:autoscaling_group_name`).
 
 ## Casos especiales
-- **Una sola instance**: usa `instance_order = 'even'` (default) para incluir el índice 0; el wrapper hará deploy normal (sin waves).
+- **Una sola instance**: usa `instance_order = 'even'` (default) para incluir el índice 0; el wrapper hará deploy normal (sin waves ni deregistro/registro).
 - **Instance extra fuera del ASG (cron/sidekiq) pero en el target group**: se incluye en el conteo y en las waves porque el discovery se basa en el target group.
 - **Orden de waves**: cambia `blue_green_orders` (ej. `%w[even odd]` o sólo `%w[even]` si quieres evitar un segundo wave en single-node).
 
