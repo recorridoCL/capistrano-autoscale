@@ -176,12 +176,12 @@ namespace :autoscaled do
     instance_count = ec2_instances.count
 
     if instance_count < min_for_blue_green
-      info "ASG #{asg_name} has #{instance_count} instance(s) (min=#{min_for_blue_green}). Running normal deploy on #{stage}."
+      puts "ASG #{asg_name} has #{instance_count} instance(s) (min=#{min_for_blue_green}). Running normal deploy on #{stage}."
       invoke 'deploy' # regular deploy for this env
       next
     end
 
-    info "ASG #{asg_name} has #{instance_count} instances, running blue/green deploy."
+    puts "ASG #{asg_name} has #{instance_count} instances, running blue/green deploy."
     invoke 'autoscaled:blue_green_deploy'
   end
 
@@ -192,12 +192,12 @@ namespace :autoscaled do
     # Orders to deploy in sequence (default: even then odd)
     orders = fetch(:blue_green_orders, %w[even odd])
 
-    info "Starting blue/green deploy waves for stage #{stage} (orders: #{orders.join(', ')})"
+    puts "Starting blue/green deploy waves for stage #{stage} (orders: #{orders.join(', ')})"
 
     orders.each do |order|
-      info "Deploying #{order} instances..."
+      puts "Deploying #{order} instances..."
 
-      info "Deregistering #{order} instances from load balancer..."
+      puts "Deregistering #{order} instances from load balancer..."
       run_locally do
         with 'INSTANCE_ORDER' => order do
           execute :bundle, :exec, :cap, stage, 'deploy:deregister_instances_from_load_balancer'
@@ -210,7 +210,7 @@ namespace :autoscaled do
         end
       end
 
-      info "Registering #{order} instances back into load balancer..."
+      puts "Registering #{order} instances back into load balancer..."
       run_locally do
         with 'INSTANCE_ORDER' => order do
           execute :bundle, :exec, :cap, stage, 'deploy:register_instances_in_load_balancer'
@@ -220,12 +220,12 @@ namespace :autoscaled do
 
     # Optionally bake a new AMI after both waves
     if fetch(:blue_green_create_ami, true)
-      info "Creating new AMI after blue/green deploy..."
+      puts "Creating new AMI after blue/green deploy..."
       run_locally do
         execute :bundle, :exec, :cap, stage, 'deploy:new_ami_configuration'
       end
     end
 
-    info "Blue/green deploy finished for #{stage}."
+    puts "Blue/green deploy finished for #{stage}."
   end
 end
