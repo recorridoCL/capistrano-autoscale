@@ -48,11 +48,11 @@ module Capistrano
       def self.extract_launch_template_id(autoscaling_group)
         launch_template_id =
           if autoscaling_group.launch_template
-            puts "Using launch template ID from SDK v1 structure"
+            puts 'Using launch template ID from SDK v1 structure'
             lt = autoscaling_group.launch_template
             lt.launch_template_id || lt['launch_template_id'] || lt[:launch_template_id]
           else
-            puts "Using launch template ID from capistrano config variable"
+            puts 'Using launch template ID from capistrano config variable'
             fetch(:autoscaling_launch_template_id, nil)
           end
 

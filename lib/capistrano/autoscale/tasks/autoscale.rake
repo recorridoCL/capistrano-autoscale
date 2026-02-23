@@ -1,5 +1,5 @@
 namespace :deploy do
-  desc "Register instances in load balancer"
+  desc 'Register instances in load balancer'
   task :register_instances_in_load_balancer do
     on roles(:db) do
       within release_path do
@@ -26,7 +26,7 @@ namespace :deploy do
     end
   end
 
-  desc "Deregister instances from load balancer"
+  desc 'Deregister instances from load balancer'
   task :deregister_instances_from_load_balancer do
     on roles(:db) do
       within release_path do
@@ -52,7 +52,7 @@ namespace :deploy do
     end
   end
 
-  desc "New AMI from deploy and associate to scaling group"
+  desc 'New AMI from deploy and associate to scaling group'
   task :new_ami_configuration do
     on roles(:db) do
       within release_path do
@@ -75,7 +75,7 @@ namespace :deploy do
           info "Using launch template ID: #{launch_template_id}"
 
           # Create AMI
-          info "Starting creating AMI"
+          info 'Starting creating AMI'
           new_ami = ec2.create_image(
             block_device_mappings: [
               {
@@ -106,13 +106,13 @@ namespace :deploy do
           info "Finished create AMI #{new_ami.image_id}"
 
           # Create launch template version from new AMI
-          info "Starting create launch template new version"
+          info 'Starting create launch template new version'
           version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
 
-          info "Getting launch template data..."
+          info 'Getting launch template data...'
           launch_template_single_version = ec2.describe_launch_template_versions(
             launch_template_id: launch_template_id,
-            versions: ["$Default"]
+            versions: ['$Default']
           ).launch_template_versions.first
           info "- launch template id: #{launch_template_single_version.launch_template_id}"
           info "- launch template chosen version number: #{launch_template_single_version.version_number}"
@@ -131,14 +131,14 @@ namespace :deploy do
               image_id: new_ami.image_id,
               instance_type: fetch(:instance_type),
               iam_instance_profile: {
-                name: iam_instance_profile_name || "autoscaling-iam"
+                name: iam_instance_profile_name || 'autoscaling-iam'
               },
               monitoring: {
                 enabled: true
               },
               security_group_ids: security_groups,
               metadata_options: {
-                instance_metadata_tags: "enabled"
+                instance_metadata_tags: 'enabled'
               },
               ebs_optimized: false
             }
@@ -153,7 +153,7 @@ namespace :deploy do
           info "Finished create launch template new version (V. Number: #{new_template_version_number})"
 
           # Update autoscaling group
-          info "Setting new version as default in the launch template"
+          info 'Setting new version as default in the launch template'
           ec2.modify_launch_template(
             launch_template_id: launch_template_id,
             default_version: new_template_version_number.to_s
@@ -165,7 +165,7 @@ namespace :deploy do
 end
 
 namespace :autoscaled do
-  desc "Autoscale deploy wrapper to deploy standalone or blue/green deploy (with register/deregister instances and ami creation if needed)"
+  desc 'Autoscale deploy wrapper to deploy standalone or blue/green deploy (with register/deregister instances and ami creation if needed)'
   task :deploy do
     stage = fetch(:stage).to_s                 # e.g. "production"
     asg_name = fetch(:autoscaling_group_name)  # set this in deploy/<env>.rb
@@ -185,7 +185,7 @@ namespace :autoscaled do
     invoke 'autoscaled:blue_green_deploy'
   end
 
-  desc "Run blue/green deploy waves using instance_order overrides and LB registration"
+  desc 'Run blue/green deploy waves using instance_order overrides and LB registration'
   task :blue_green_deploy do
     stage = fetch(:stage).to_s
 
@@ -219,7 +219,7 @@ namespace :autoscaled do
 
     # Optionally bake a new AMI after both waves
     if fetch(:blue_green_create_ami, true)
-      puts "Creating new AMI after blue/green deploy..."
+      puts 'Creating new AMI after blue/green deploy...'
       Capistrano::Autoscale::LocalRunner.run_cap_locally(
         stage: stage,
         task_name: 'deploy:new_ami_configuration'
