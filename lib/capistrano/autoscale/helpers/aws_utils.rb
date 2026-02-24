@@ -22,12 +22,16 @@ module Capistrano
         tg_arn = autoscaling_group.target_group_arns&.first
 
         loadbalancer_data = loadbalancer.describe_target_health(target_group_arn: tg_arn)
-        instances_ids = loadbalancer_data.target_health_descriptions.map{|h| h.target.id}.sort
+        instances_ids = loadbalancer_data.target_health_descriptions.map { |h| h.target.id }.sort
         return [] if instances_ids.empty?
 
-        description_instances = ec2.describe_instances({instance_ids: instances_ids}).reservations
+        description_instances = ec2.describe_instances(instance_ids: instances_ids).reservations
 
-        instances = description_instances.map{|h| h.instances.map {|i| {instance_id: i.instance_id, private_ip_address: i.private_ip_address}}}.flatten
+        instances = description_instances.map do |h|
+          h.instances.map do |i|
+            { instance_id: i.instance_id, private_ip_address: i.private_ip_address }
+          end
+        end.flatten
         instances_by_id = instances.each_with_object({}) do |instance, memo|
           memo[instance[:instance_id]] = instance
         end
