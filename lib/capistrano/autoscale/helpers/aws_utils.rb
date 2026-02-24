@@ -45,6 +45,85 @@ module Capistrano
         selected_instances
       end
 
+      def self.create_ami(ec2:, instance_id:, volume_sizes:, deployment_env:, date_now:)
+        ec2.create_image(
+          block_device_mappings: [
+            {
+              device_name: '/dev/sda1',
+              ebs: {
+                encrypted: false,
+                delete_on_termination: true,
+                volume_size: volume_sizes[0],
+                volume_type: 'gp2'
+              }
+            },
+            {
+              device_name: '/dev/sdf',
+              ebs: {
+                encrypted: false,
+                delete_on_termination: true,
+                volume_size: volume_sizes[1],
+                volume_type: 'gp2'
+              }
+            }
+          ],
+          description: "#{deployment_env} autoscale with ebs termination #{date_now}",
+          dry_run: false,
+          instance_id: instance_id,
+          name: "#{deployment_env}-autoscale #{date_now}",
+          no_reboot: true
+        )
+      end
+
+      def self.create_launch_template_version_from_ami(ec2:, launch_template_id:, image_id:, instance_type:, deployment_env:, date_now:)
+        version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
+
+        launch_template_single_version = ec2.describe_launch_template_versions(
+          launch_template_id: launch_template_id,
+          versions: ['$Default']
+        ).launch_template_versions.first
+
+        security_groups = launch_template_single_version.launch_template_data.security_group_ids
+        iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
+        key_name = launch_template_single_version.launch_template_data.key_name
+        tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map { |ts| ts.to_h }
+
+        lt_request_params = {
+          launch_template_id: launch_template_id,
+          version_description: version_name,
+          launch_template_data: {
+            image_id: image_id,
+            instance_type: instance_type,
+            iam_instance_profile: {
+              name: iam_instance_profile_name || 'autoscaling-iam'
+            },
+            monitoring: {
+              enabled: true
+            },
+            security_group_ids: security_groups,
+            metadata_options: {
+              instance_metadata_tags: 'enabled'
+            },
+            ebs_optimized: false
+          }
+        }
+        lt_request_params[:launch_template_data][:key_name] = key_name if key_name
+        lt_request_params[:launch_template_data][:tag_specifications] = tag_specs if tag_specs.any?
+
+        resp = ec2.create_launch_template_version(lt_request_params)
+        new_template_version_number = resp.launch_template_version.version_number
+
+        puts "- launch template id: #{launch_template_single_version.launch_template_id}"
+        puts "- launch template chosen version number: #{launch_template_single_version.version_number}"
+        puts "- launch template versions security groups: #{Array(security_groups).join(', ')}"
+        puts "- launch template versions IAM profile name: #{iam_instance_profile_name}"
+        puts "- launch template versions key name: #{key_name}"
+        puts "- launch template params: #{lt_request_params.to_h}"
+        puts "Finished create launch template new version (V. Number: #{new_template_version_number})"
+
+        new_template_version_number
+      end
+
       def self.extract_launch_template_id(autoscaling_group)
         launch_template_id =
           if autoscaling_group.launch_template
