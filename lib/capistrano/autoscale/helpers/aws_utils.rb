@@ -91,6 +91,7 @@ module Capistrano
         iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
         key_name = launch_template_single_version.launch_template_data.key_name
         tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map { |ts| ts.to_h }
+        user_data = launch_template_single_version.launch_template_data.user_data
 
         lt_request_params = {
           launch_template_id: launch_template_id,
@@ -108,7 +109,8 @@ module Capistrano
             metadata_options: {
               instance_metadata_tags: 'enabled'
             },
-            ebs_optimized: false
+            ebs_optimized: false,
+            user_data: user_data
           }
         }
         lt_request_params[:launch_template_data][:key_name] = key_name if key_name
