@@ -1,208 +1,176 @@
 namespace :deploy do
-  desc "Register instances in load balancer"
+  desc 'Register instances in load balancer'
   task :register_instances_in_load_balancer do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
-          ::Aws.config[:region] = fetch(:aws_region)
-          ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+          Capistrano::Autoscale::AwsUtils.configure_aws(
+            region: fetch(:aws_region),
+            access_key: fetch(:aws_access_owner_id),
+            secret_key: fetch(:aws_secret_owner_access_key)
+          )
 
           loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
 
-          instances = fetch(:instances)
-          info "Adding instances #{instances}"
+          autoscaling_group_name = fetch(:autoscaling_group_name)
+          autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
+          tg_arn = autoscaling_group.target_group_arns&.first
 
-          loadbalancer.register_targets(
-              {
-                  target_group_arn: fetch(:autoscaling_target_group_arn),
-                  targets: instances
-              })
+          instances = fetch(:instances)
+          info "Adding instances #{instances} to target group: #{tg_arn}"
+
+          loadbalancer.register_targets(target_group_arn: tg_arn, targets: instances)
           sleep 20
         end
       end
     end
   end
 
-  desc "Deregister instances from load balancer"
+  desc 'Deregister instances from load balancer'
   task :deregister_instances_from_load_balancer do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
-          ::Aws.config[:region] = fetch(:aws_region)
-          ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+          Capistrano::Autoscale::AwsUtils.configure_aws(
+            region: fetch(:aws_region),
+            access_key: fetch(:aws_access_owner_id),
+            secret_key: fetch(:aws_secret_owner_access_key)
+          )
 
           loadbalancer = ::Aws::ElasticLoadBalancingV2::Client.new
 
-          instances = fetch(:instances)
-          info "Removing instances #{instances}"
+          autoscaling_group_name = fetch(:autoscaling_group_name)
+          autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(autoscaling_group_name)
+          tg_arn = autoscaling_group.target_group_arns&.first
 
-          loadbalancer.deregister_targets(
-              {
-                  target_group_arn: fetch(:autoscaling_target_group_arn),
-                  targets: instances
-              })
+          instances = fetch(:instances)
+          info "Removing instances #{instances} from target group: #{tg_arn}"
+
+          loadbalancer.deregister_targets(target_group_arn: tg_arn, targets: instances)
         end
       end
     end
   end
 
-  desc "New AMI from deploy and associate to scaling group"
+  desc 'New AMI from deploy and associate to scaling group'
   task :new_ami_configuration do
     on roles(:db) do
       within release_path do
         with rails_env: fetch(:rails_env) do
           deployment_env = fetch(:deployment_env)
-          ::Aws.config[:region] = fetch(:aws_region)
-          ::Aws.config[:credentials] = ::Aws::Credentials.new(fetch(:aws_access_owner_id), fetch(:aws_secret_owner_access_key))
+          Capistrano::Autoscale::AwsUtils.configure_aws(
+            region: fetch(:aws_region),
+            access_key: fetch(:aws_access_owner_id),
+            secret_key: fetch(:aws_secret_owner_access_key)
+          )
 
           date_now = Time.now.strftime('%d-%m-%Y %H.%M')
 
           ec2 = ::Aws::EC2::Client.new
-          autoscaling = ::Aws::AutoScaling::Client.new
-          autoscaling_group_name = fetch(:autoscaling_group_name)
+          autoscaling_group = Capistrano::Autoscale::AwsUtils.fetch_autoscaling_group(fetch(:autoscaling_group_name))
+          instances = autoscaling_group.instances.map { |h| h['instance_id'] }
 
-          instances = autoscaling.describe_auto_scaling_groups(
-              {
-                  auto_scaling_group_names: [
-                      autoscaling_group_name
-                  ]
-              }
-          ).auto_scaling_groups[0].instances.map {|h| h['instance_id']}
+          # Extract launch template ID from autoscaling group
+          launch_template_id = Capistrano::Autoscale::AwsUtils.extract_launch_template_id(autoscaling_group)
+          info "Using launch template ID: #{launch_template_id}"
 
           # Create AMI
-          info "Starting creating AMI"
-          new_ami = ec2.create_image(
-              {
-                  block_device_mappings: [
-                      {
-                          device_name: '/dev/sda1',
-                          ebs: {
-                              encrypted: false,
-                              delete_on_termination: true,
-                              volume_size: fetch(:volume_sizes)[0],
-                              volume_type: 'gp2',
-                          }
-                      },
-                      {
-                          device_name: '/dev/sdf',
-                          ebs: {
-                              encrypted: false,
-                              delete_on_termination: true,
-                              volume_size: fetch(:volume_sizes)[1],
-                              volume_type: 'gp2',
-                          }
-                      }
-                  ],
-                  description: "#{deployment_env} autoscale with ebs termination #{date_now}",
-                  dry_run: false,
-                  instance_id: instances.last,
-                  name: "#{deployment_env}-autoscale #{date_now}",
-                  no_reboot: true,
-              })
+          info 'Starting creating AMI'
+          new_ami = Capistrano::Autoscale::AwsUtils.create_ami(
+            ec2: ec2,
+            instance_id: instances.last,
+            volume_sizes: fetch(:volume_sizes),
+            deployment_env: deployment_env,
+            date_now: date_now
+          )
           info "Finished create AMI #{new_ami.image_id}"
 
-          launch_templates_enabled = fetch(:autoscaling_launch_templates_enabled)
+          # Create launch template version from new AMI
+          info 'Starting create launch template new version'
+          info 'Getting launch template data...'
+          new_template_version_number = Capistrano::Autoscale::AwsUtils.create_launch_template_version_from_ami(
+            ec2: ec2,
+            launch_template_id: launch_template_id,
+            image_id: new_ami.image_id,
+            instance_type: fetch(:instance_type),
+            deployment_env: deployment_env,
+            date_now: date_now
+          )
 
-          if launch_templates_enabled
-            # Create launch template version from new AMI
-            info "Starting create launch template new version"
-            version_name = "Autoscale-#{deployment_env}-template-version-#{date_now}"
-
-            info "Getting launch template data..."
-            launch_template_single_version = ec2.describe_launch_template_versions({
-              launch_template_id: fetch(:autoscaling_launch_template_id),
-              versions: ["$Default"]
-            }).launch_template_versions.first
-            info "- launch template id: #{launch_template_single_version.launch_template_id}"
-            info "- launch template chosen version number: #{launch_template_single_version.version_number}"
-            security_groups = launch_template_single_version.launch_template_data.security_group_ids
-            info "- launch template versions security groups: #{security_groups.join(', ')}"
-            iam_instance_profile_name = launch_template_single_version.launch_template_data.iam_instance_profile&.name
-            info "- launch template versions IAM profile name: #{iam_instance_profile_name}"
-            key_name = launch_template_single_version.launch_template_data.key_name
-            info "- launch template versions key name: #{key_name}"
-            tag_specs = launch_template_single_version.launch_template_data.tag_specifications.map {|ts| ts.to_h}
-
-            lt_request_params = {
-              launch_template_id: fetch(:autoscaling_launch_template_id),
-              version_description: version_name,
-              launch_template_data: {
-                image_id: new_ami.image_id,
-                instance_type: fetch(:instance_type),
-                iam_instance_profile: {
-                  name: iam_instance_profile_name || "autoscaling-iam"
-                },
-                monitoring: {
-                  enabled: true
-                },
-                security_group_ids: security_groups,
-                metadata_options: {
-                  instance_metadata_tags: "enabled"
-                },
-                ebs_optimized: false
-              }
-            }
-            lt_request_params[:launch_template_data][:key_name] = key_name if key_name
-            lt_request_params[:launch_template_data][:tag_specifications] = tag_specs if tag_specs.any?
-            info "- launch template params: #{lt_request_params.to_h}"
-
-            resp = ec2.create_launch_template_version(lt_request_params)
-
-            new_template_version_number = resp.launch_template_version.version_number
-            info "Finished create launch template new version (V. Number: #{new_template_version_number})"
-
-            # Update autoscaling group
-            info "Setting new version as default in the launch template"
-            ec2.modify_launch_template({
-              launch_template_id: fetch(:autoscaling_launch_template_id),
-              default_version: new_template_version_number.to_s
-            })
-          else
-            # List images
-            old_amis = ec2.describe_images({owners: ['824916716342']}).images.select {|s| s['name'].downcase.include?("#{deployment_env}-autoscale")}.map {|h| {name: h['name'], image_id: h['image_id']}}
-            old_ami = old_amis.sort_by { |h| h[:name] }.first
-            old_ami_image_id = old_ami[:image_id]
-
-            # Delete old AMI
-            info "Starting deleting old AMI: #{old_ami_image_id}"
-            ec2.deregister_image({
-              image_id: old_ami_image_id,
-              dry_run: false,
-            })
-            info "Finished delete old AMI: #{old_ami_image_id}"
-
-            # Create launch configuration
-            info "Starting create launch configuration"
-            launch_configuration_name = "Autoscale-#{deployment_env}-launch-#{date_now}"
-            autoscaling.create_launch_configuration({
-              iam_instance_profile: "autoscaling-iam",
-              image_id: new_ami.image_id,
-              instance_type: fetch(:instance_type),
-              launch_configuration_name: launch_configuration_name,
-              security_groups: [
-                fetch(:security_group),
-              ],
-            })
-            info "Finished create launch configuration #{launch_configuration_name}"
-
-            # List launch configurations
-            old_launch_configuration = autoscaling.describe_launch_configurations.launch_configurations.select {|h| h['image_id'] == old_ami_image_id}[0].launch_configuration_name
-
-            # Update autoscaling group
-            info "Starting updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{old_launch_configuration}"
-            autoscaling.update_auto_scaling_group({
-              auto_scaling_group_name: autoscaling_group_name,
-              launch_configuration_name: launch_configuration_name
-            })
-            info "Finished updating autoscaling group: #{autoscaling_group_name}, launch configuration name: #{launch_configuration_name}"
-
-            # Delete old launch configuration
-            info "Starting removing old launch configuration #{old_launch_configuration}"
-            autoscaling.delete_launch_configuration({launch_configuration_name: old_launch_configuration})
-            info "Finished removing old launch configuration #{old_launch_configuration}"
-          end
+          # Update autoscaling group
+          info 'Setting new version as default in the launch template'
+          ec2.modify_launch_template(
+            launch_template_id: launch_template_id,
+            default_version: new_template_version_number.to_s
+          )
         end
       end
     end
+  end
+end
+
+namespace :autoscaled do
+  desc 'Autoscale deploy wrapper to deploy standalone or blue/green deploy (with register/deregister instances and ami creation if needed)'
+  task :deploy do
+    stage = fetch(:stage).to_s                 # e.g. "production"
+    asg_name = fetch(:autoscaling_group_name)  # set this in deploy/<env>.rb
+    min_for_blue_green = fetch(:blue_green_min_instances, 2)
+
+    # Determine current instance count from the target group (to select the deploy strategy)
+    ec2_instances = Capistrano::Autoscale::AwsUtils.fetch_all_ec2_instances
+    instance_count = ec2_instances.count
+
+    if instance_count < min_for_blue_green
+      puts "ASG #{asg_name} has #{instance_count} instance(s) (min=#{min_for_blue_green}). Running normal deploy on #{stage}."
+      invoke 'deploy' # regular deploy for this env
+      next
+    end
+
+    puts "ASG #{asg_name} has #{instance_count} instances, running blue/green deploy."
+    invoke 'autoscaled:blue_green_deploy'
+  end
+
+  desc 'Run blue/green deploy waves using instance_order overrides and LB registration'
+  task :blue_green_deploy do
+    stage = fetch(:stage).to_s
+
+    # Orders to deploy in sequence (default: even then odd)
+    orders = fetch(:blue_green_orders, %w[even odd])
+
+    puts "Starting blue/green deploy waves for stage #{stage} (orders: #{orders.join(', ')})"
+
+    orders.each do |order|
+      puts "Deploying #{order} instances..."
+
+      puts "Deregistering #{order} instances from load balancer..."
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy:deregister_instances_from_load_balancer',
+        instance_order: order
+      )
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy',
+        instance_order: order
+      )
+
+      puts "Registering #{order} instances back into load balancer..."
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy:register_instances_in_load_balancer',
+        instance_order: order
+      )
+    end
+
+    # Optionally bake a new AMI after both waves
+    if fetch(:blue_green_create_ami, true)
+      puts 'Creating new AMI after blue/green deploy...'
+      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+        stage: stage,
+        task_name: 'deploy:new_ami_configuration'
+      )
+    end
+
+    puts "Blue/green deploy finished for #{stage}."
   end
 end
