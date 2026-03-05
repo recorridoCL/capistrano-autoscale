@@ -1,5 +1,5 @@
 module Capistrano
   module Autoscale
-    VERSION = '0.3.12-beta.8'
+    VERSION = '0.4.0'
   end
 end
