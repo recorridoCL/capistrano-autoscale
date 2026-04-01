@@ -120,45 +120,47 @@ namespace :autoscaled do
     ec2_instances = Capistrano::Autoscale::AwsUtils.fetch_all_ec2_instances
     instance_count = ec2_instances.count
 
-    if instance_count < min_for_blue_green
-      puts "ASG #{asg_name} has #{instance_count} instance(s) (min=#{min_for_blue_green}). Running normal deploy on #{stage}."
+    if ec2_instances.count.zero?
+      raise 'ERROR: no instances found in target group (with fetch_all_ec2_instances)'
+    elsif instance_count < min_for_blue_green
+      puts "ASG #{asg_name} has #{instance_count} instance(s) (min=#{min_for_blue_green})."
+      puts ">> Running normal deploy on #{stage}."
       invoke 'deploy' # regular deploy for this env
-      next
+    else
+      puts "ASG #{asg_name} has #{instance_count} instances, running blue/green deploy."
+      # Single TG snapshot for this deploy (blue_green_deploy reads it via fetch; Capistrano invoke does not pass kwargs).
+      set :all_target_group_instances, ec2_instances
+      invoke 'autoscaled:blue_green_deploy'
     end
-
-    puts "ASG #{asg_name} has #{instance_count} instances, running blue/green deploy."
-    invoke 'autoscaled:blue_green_deploy'
   end
 
-  desc 'Run blue/green deploy waves using instance_order overrides and LB registration'
+  desc 'Run blue/green deploy waves (fixed instance IDs per wave) and LB registration (invoke via autoscaled:deploy)'
   task :blue_green_deploy do
     stage = fetch(:stage).to_s
 
-    # Orders to deploy in sequence (default: even then odd)
-    orders = fetch(:blue_green_orders, %w[even odd])
+    # TG snapshot from autoscaled:deploy (avoid a second describe_target_health pass).
+    all_instances = fetch(:all_target_group_instances) do
+      raise 'autoscaled:blue_green_deploy is meant to run after autoscaled:deploy ' \
+            '(missing :all_target_group_instances). Call `cap <stage> autoscaled:deploy` instead.'
+    end
+    wave_instance_ids = Capistrano::Autoscale::BlueGreen.instance_ids_by_wave(all_instances)
 
-    puts "Starting blue/green deploy waves for stage #{stage} (orders: #{orders.join(', ')})"
+    puts "Starting blue/green deploy waves for stage #{stage} (even, then odd)"
+    wave_instance_ids.each do |label, ids|
+      puts "  Wave #{label}: #{ids.size} instance(s)"
+    end
 
-    orders.each do |order|
-      puts "Deploying #{order} instances..."
+    Capistrano::Autoscale::BlueGreen::WAVE_PARTITION_LABELS.each do |wave_name|
+      ids = wave_instance_ids[wave_name]
+      if ids.empty?
+        puts "WARNING: Skipping wave #{wave_name}: no instances in the wave list"
+        next
+      end
 
-      puts "Deregistering #{order} instances from load balancer..."
-      Capistrano::Autoscale::LocalRunner.run_cap_locally(
+      Capistrano::Autoscale::BlueGreen.run_wave!(
         stage: stage,
-        task_name: 'deploy:deregister_instances_from_load_balancer',
-        instance_order: order
-      )
-      Capistrano::Autoscale::LocalRunner.run_cap_locally(
-        stage: stage,
-        task_name: 'deploy',
-        instance_order: order
-      )
-
-      puts "Registering #{order} instances back into load balancer..."
-      Capistrano::Autoscale::LocalRunner.run_cap_locally(
-        stage: stage,
-        task_name: 'deploy:register_instances_in_load_balancer',
-        instance_order: order
+        order: wave_name,
+        instance_ids: ids
       )
     end
 

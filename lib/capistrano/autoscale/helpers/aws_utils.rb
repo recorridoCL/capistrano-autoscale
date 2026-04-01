@@ -39,14 +39,28 @@ module Capistrano
         instances_ids.map { |id| instances_by_id[id] }.compact
       end
 
-      def self.fetch_ec2_instances(type)
-        instances = fetch_all_ec2_instances
+      # Resolve IPs for a fixed wave (same order as +instance_ids+). Used when +CAP_BLUE_GREEN_INSTANCE_IDS+ is set.
+      def self.instances_for_ids(instance_ids)
+        ids = Array(instance_ids).map(&:to_s).map(&:strip).reject(&:empty?)
+        return [] if ids.empty?
 
-        selected_instances = instances.values_at(* instances.each_index.select {|i| i.send("#{type}?")})
+        configure_aws(
+          region: fetch(:aws_region),
+          access_key: fetch(:aws_access_owner_id),
+          secret_key: fetch(:aws_secret_owner_access_key)
+        )
 
-        puts "Found #{type} #{selected_instances.count} servers (#{selected_instances.join(',')})"
+        ec2 = ::Aws::EC2::Client.new
+        reservations = ec2.describe_instances(instance_ids: ids).reservations
+        by_id = {}
+        reservations.flat_map(&:instances).each do |i|
+          by_id[i.instance_id] = { instance_id: i.instance_id, private_ip_address: i.private_ip_address }
+        end
 
-        selected_instances
+        ids.map { |id| by_id[id] }.tap do |list|
+          missing = ids - list.compact.map { |h| h[:instance_id] }
+          raise "Could not resolve instance IDs: #{missing.join(', ')}" if missing.any?
+        end
       end
 
       def self.create_ami(ec2:, instance_id:, volume_sizes:, deployment_env:, date_now:)

@@ -26,9 +26,7 @@ set :aws_region, ENV.fetch('AWS_REGION')                             # required;
 set :aws_access_owner_id, ENV.fetch('AWS_ACCESS_KEY_ID')             # required;
 set :aws_secret_owner_access_key, ENV.fetch('AWS_SECRET_ACCESS_KEY') # required;
 set :autoscaling_group_name, ENV.fetch('AUTOSCALING_GROUP_NAME')     # required;
-set :instance_order, 'even'          # default; puede ser 'odd' para la otra mitad
 set :blue_green_min_instances, 2     # default; mínimo para habilitar blue/green
-set :blue_green_orders, %w[even odd] # default; secuencia de waves; puedes cambiarla
 set :blue_green_create_ami, true     # default; si quieres crear AMI al final del blue/green
 ```
 
@@ -48,7 +46,8 @@ setup_servers
 
 - La gema toma el ARN del target group desde el Auto Scaling Group y lista los targets healthy (`describe_target_health`).
 - Cualquier instance registrada en el target group se incluye, aunque no pertenezca formalmente al ASG (útil para instancias como la cron, o instancias de sidekiq (posiblemente)).
-- La paridad `even/odd` se aplica por índice del listado ordenado, comenzando en 0.
+- Deploy normal (sin la env de IDs de wave): Capistrano usa **todas** las instancias del target group en ese momento.
+- Blue/green: el wrapper toma un snapshot al inicio, parte en dos waves fijas (índices pares luego impares en la lista ordenada por `instance_id`) y pasa la lista fija de IDs a cada subprocess vía variable de entorno interna (`CAP_BLUE_GREEN_INSTANCE_IDS`).
 
 ## Deploys
 El deploy funciona a través de un único wrapper task:
@@ -63,32 +62,26 @@ Cuando el target group tiene una sola instance (o cuando no se cumple `blue_gree
 ```bash
 bundle exec cap production autoscaled:deploy
 ```
-El wrapper detecta que no hay instancias suficientes y ejecuta `deploy` normal.
+El wrapper detecta que no hay instancias suficientes y ejecuta `deploy` normal sobre **toda** la flota del TG.
 
 ### Blue/green por paridad
 Con 2 o más instances en el target group, el wrapper:
 1) Cuenta instances del target group.
-2) Si hay suficientes, corre waves en secuencia (`blue_green_orders`, default `even` luego `odd`), pasando `INSTANCE_ORDER` a cada wave. Entre cada wave, va deregistrando/registrando las instancias correspondientes.
+2) Si hay suficientes, toma un snapshot de los IDs en el target group, corre dos waves en orden fijo (even luego odd por índice), y para cada subprocess pasa la lista fija de IDs (variable de entorno interna). Así el deregister/deploy/register no depende de un nuevo snapshot del TG entre pasos.
 3) Al finalizar las waves, opcionalmente ejecuta `deploy:new_ami_configuration` (controlado por `blue_green_create_ami`).
 
-Puedes forzar el orden en runtime:
-```bash
-INSTANCE_ORDER=odd bundle exec cap production deploy
-```
-(Por si quieres correr sólo una wave manualmente.)
+Un `cap ... deploy` directo (sin wrapper) usa toda la flota del TG en ese momento; las waves y los subconjuntos por instancia solo las define el wrapper vía la env de IDs.
 
 ## Tareas incluidas
 
 - `autoscaled:deploy`: wrapper que decide normal vs. blue/green según el conteo del target group.
-- `autoscaled:blue_green_deploy`: ejecuta las waves en el orden configurado y luego la creación de AMI opcional.
+- `autoscaled:blue_green_deploy`: las dos waves (even, odd) y AMI opcional; pensado para invocarse desde `autoscaled:deploy` (usa `:all_target_group_instances` que ese task deja con el listado del TG).
 - `deploy:register_instances_in_load_balancer`: registra los `:instances` actuales en el target group.
 - `deploy:deregister_instances_from_load_balancer`: los saca del target group.
 - `deploy:new_ami_configuration`: crea AMI desde una instance del ASG, genera nueva versión del Launch Template y la deja como default (requiere `:volume_sizes`, `:instance_type`, `:autoscaling_group_name`).
 
 ## Casos especiales
-- **Una sola instance**: usa `instance_order = 'even'` (default) para incluir el índice 0; el wrapper hará deploy normal (sin waves ni deregistro/registro).
+- **Una sola instance**: el deploy normal incluye esa única instancia; el wrapper hará deploy sin waves ni deregistro/registro.
 - **Instance extra fuera del ASG (cron/sidekiq) pero en el target group**: se incluye en el conteo y en las waves porque el discovery se basa en el target group.
-- **Orden de waves**: cambia `blue_green_orders` (ej. `%w[even odd]` o sólo `%w[even]` si quieres evitar un segundo wave en single-node).
-
 ## Licencia
 MIT. See [MIT License](http://opensource.org/licenses/MIT).
