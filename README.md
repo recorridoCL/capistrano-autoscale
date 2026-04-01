@@ -27,7 +27,7 @@ set :aws_access_owner_id, ENV.fetch('AWS_ACCESS_KEY_ID')             # required;
 set :aws_secret_owner_access_key, ENV.fetch('AWS_SECRET_ACCESS_KEY') # required;
 set :autoscaling_group_name, ENV.fetch('AUTOSCALING_GROUP_NAME')     # required;
 set :blue_green_min_instances, 2     # default; mínimo para habilitar blue/green
-set :blue_green_create_ami, true     # default; si quieres crear AMI al final del blue/green
+set :update_launch_template_ami, true # default; al final de autoscaled:deploy, crear AMI y actualizar launch template
 ```
 
 En `config/deploy/production.rb` (ejemplo):
@@ -62,20 +62,20 @@ Cuando el target group tiene una sola instance (o cuando no se cumple `blue_gree
 ```bash
 bundle exec cap production autoscaled:deploy
 ```
-El wrapper detecta que no hay instancias suficientes y ejecuta `deploy` normal sobre **toda** la flota del TG.
+El wrapper detecta que no hay instancias suficientes y ejecuta `deploy` normal sobre **toda** la flota del TG; al final del wrapper (común a ambas rutas) puede ejecutarse `deploy:new_ami_configuration` según `update_launch_template_ami`.
 
 ### Blue/green por paridad
 Con 2 o más instances en el target group, el wrapper:
 1) Cuenta instances del target group.
 2) Si hay suficientes, toma un snapshot de los IDs en el target group, corre dos waves en orden fijo (even luego odd por índice), y para cada subprocess pasa la lista fija de IDs (variable de entorno interna). Así el deregister/deploy/register no depende de un nuevo snapshot del TG entre pasos.
-3) Al finalizar las waves, opcionalmente ejecuta `deploy:new_ami_configuration` (controlado por `blue_green_create_ami`).
+3) Cuando termina la ruta elegida (deploy normal o blue/green), si `update_launch_template_ami` es true, el wrapper hace `invoke deploy:new_ami_configuration` en el mismo proceso de Capistrano.
 
 Un `cap ... deploy` directo (sin wrapper) usa toda la flota del TG en ese momento; las waves y los subconjuntos por instancia solo las define el wrapper vía la env de IDs.
 
 ## Tareas incluidas
 
 - `autoscaled:deploy`: wrapper que decide normal vs. blue/green según el conteo del target group.
-- `autoscaled:blue_green_deploy`: las dos waves (even, odd) y AMI opcional; pensado para invocarse desde `autoscaled:deploy` (usa `:all_target_group_instances` que ese task deja con el listado del TG).
+- `autoscaled:blue_green_deploy`: las dos waves (even, odd); pensado para invocarse desde `autoscaled:deploy` (usa `:all_target_group_instances`). La AMI la dispara solo `autoscaled:deploy` al final si corresponde.
 - `deploy:register_instances_in_load_balancer`: registra los `:instances` actuales en el target group.
 - `deploy:deregister_instances_from_load_balancer`: los saca del target group.
 - `deploy:new_ami_configuration`: crea AMI desde una instance del ASG, genera nueva versión del Launch Template y la deja como default (requiere `:volume_sizes`, `:instance_type`, `:autoscaling_group_name`).

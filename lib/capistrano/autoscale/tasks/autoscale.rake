@@ -125,12 +125,17 @@ namespace :autoscaled do
     elsif instance_count < min_for_blue_green
       puts "ASG #{asg_name} has #{instance_count} instance(s) (min=#{min_for_blue_green})."
       puts ">> Running normal deploy on #{stage}."
-      invoke 'deploy' # regular deploy for this env
+      invoke 'deploy'
     else
       puts "ASG #{asg_name} has #{instance_count} instances, running blue/green deploy."
       # Single TG snapshot for this deploy (blue_green_deploy reads it via fetch; Capistrano invoke does not pass kwargs).
       set :all_target_group_instances, ec2_instances
       invoke 'autoscaled:blue_green_deploy'
+    end
+
+    if fetch(:update_launch_template_ami, true)
+      puts 'Creating new AMI after deploy...'
+      invoke 'deploy:new_ami_configuration'
     end
   end
 
@@ -145,10 +150,8 @@ namespace :autoscaled do
     end
     wave_instance_ids = Capistrano::Autoscale::BlueGreen.instance_ids_by_wave(all_instances)
 
-    puts "Starting blue/green deploy waves for stage #{stage} (even, then odd)"
-    wave_instance_ids.each do |label, ids|
-      puts "  Wave #{label}: #{ids.size} instance(s)"
-    end
+    puts ">>> Starting blue/green deploy waves for stage #{stage} (even, then odd)"
+    puts "Grouped instances by wave: #{wave_instance_ids.inspect}"
 
     Capistrano::Autoscale::BlueGreen::WAVE_PARTITION_LABELS.each do |wave_name|
       ids = wave_instance_ids[wave_name]
@@ -161,15 +164,6 @@ namespace :autoscaled do
         stage: stage,
         order: wave_name,
         instance_ids: ids
-      )
-    end
-
-    # Optionally bake a new AMI after both waves
-    if fetch(:blue_green_create_ami, true)
-      puts 'Creating new AMI after blue/green deploy...'
-      Capistrano::Autoscale::LocalRunner.run_cap_locally(
-        stage: stage,
-        task_name: 'deploy:new_ami_configuration'
       )
     end
 

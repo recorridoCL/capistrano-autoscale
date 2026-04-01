@@ -10,6 +10,7 @@ module Capistrano
 
       # +all_instances+ as returned by +AwsUtils.fetch_all_ec2_instances+ (ordered list of hashes).
       def self.instance_ids_by_wave(all_instances)
+        puts "Grouping instances by wave: All instances: #{all_instances.inspect}"
         WAVE_PARTITION_LABELS.each_with_object({}) do |label, memo|
           indices = all_instances.each_index.select { |i| i.send("#{label}?") }
           memo[label] = all_instances.values_at(*indices).map { |h| h[:instance_id] }
