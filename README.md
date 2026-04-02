@@ -28,6 +28,9 @@ set :aws_secret_owner_access_key, ENV.fetch('AWS_SECRET_ACCESS_KEY') # required;
 set :autoscaling_group_name, ENV.fetch('AUTOSCALING_GROUP_NAME')     # required;
 set :blue_green_min_instances, 2     # default; mínimo para habilitar blue/green
 set :update_launch_template_ami, true # default; al final de autoscaled:deploy, crear AMI y actualizar launch template
+# Opcional — tras register en el TG, esperar a que todos los targets estén healthy (poll):
+# set :register_poll_interval_sec, 5   # default
+# set :register_poll_timeout_sec, 120  # default; max_attempts = ceil(timeout/interval)
 ```
 
 En `config/deploy/production.rb` (ejemplo):
@@ -76,7 +79,7 @@ Un `cap ... deploy` directo (sin wrapper) usa toda la flota del TG en ese moment
 
 - `autoscaled:deploy`: wrapper que decide normal vs. blue/green según el conteo del target group.
 - `autoscaled:blue_green_deploy`: las dos waves (even, odd); pensado para invocarse desde `autoscaled:deploy` (usa `:all_target_group_instances`). La AMI la dispara solo `autoscaled:deploy` al final si corresponde.
-- `deploy:register_instances_in_load_balancer`: registra los `:instances` actuales en el target group.
+- `deploy:register_instances_in_load_balancer`: registra los `:instances` en el TG y espera health check (pensado para invocarse desde el flujo `autoscaled:deploy` / blue-green, no como task aislada).
 - `deploy:deregister_instances_from_load_balancer`: los saca del target group.
 - `deploy:new_ami_configuration`: crea AMI desde una instance del ASG, genera nueva versión del Launch Template y la deja como default (requiere `:volume_sizes`, `:instance_type`, `:autoscaling_group_name`).
 

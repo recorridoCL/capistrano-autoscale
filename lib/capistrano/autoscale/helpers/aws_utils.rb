@@ -2,6 +2,58 @@ module Capistrano
   module Autoscale
     class AwsUtils
       include Capistrano::DSL
+
+      REGISTER_HEALTH_POLL_INTERVAL_DEFAULT = 5
+      REGISTER_HEALTH_POLL_TIMEOUT_DEFAULT = 120
+
+      # Validates poll settings (positive integers); raises if invalid.
+      def self.validate_register_health_poll_config!(interval_sec:, timeout_sec:)
+        interval = Integer(interval_sec)
+        timeout = Integer(timeout_sec)
+        unless interval.positive? && timeout.positive?
+          raise 'Capistrano::Autoscale: :register_poll_interval_sec and ' \
+                ':register_poll_timeout_sec must be positive integers'
+        end
+      rescue ArgumentError, TypeError
+        # Integer() failed (nil, non-numeric string, etc.); re-raise with inputs for easier debugging.
+        raise 'Capistrano::Autoscale: :register_poll_interval_sec / :register_poll_timeout_sec must be positive integers ' \
+              "(got interval=#{interval_sec.inspect} timeout=#{timeout_sec.inspect})"
+      end
+
+      # Poll until every target in the group is +healthy+ (and there is at least one target).
+      # Reads +:register_poll_interval_sec+ and +:register_poll_timeout_sec+ (must be valid; see validate at autoscaled:deploy).
+      # Uses ceil(timeout / interval) attempts (at least 1), sleeping +interval+ between tries.
+      def self.wait_until_target_group_fully_healthy(load_balancer:, target_group_arn:)
+        interval_sec = fetch(:register_poll_interval_sec, REGISTER_HEALTH_POLL_INTERVAL_DEFAULT)
+        timeout_sec = fetch(:register_poll_timeout_sec, REGISTER_HEALTH_POLL_TIMEOUT_DEFAULT)
+        max_attempts = (timeout_sec.to_f / interval_sec.to_f).ceil
+        max_attempts = 1 if max_attempts < 1
+
+        max_attempts.times do |attempt|
+          resp = load_balancer.describe_target_health(target_group_arn: target_group_arn)
+          descs = resp.target_health_descriptions
+          total = descs.size
+          healthy = descs.count { |d| d.target_health.state == 'healthy' }
+
+          if total.positive? && healthy == total
+            puts "Target group: all #{total} target(s) healthy."
+            return
+          end
+
+          puts "Target group health: #{healthy}/#{total} healthy (attempt #{attempt + 1}/#{max_attempts})"
+          if attempt >= max_attempts - 1
+            raise(
+              'Capistrano::Autoscale: target group register health poll timed out ' \
+              "(#{healthy}/#{total} healthy after #{max_attempts} attempts, " \
+              "interval #{interval_sec}s, budget #{timeout_sec}s). " \
+              'Increase :register_poll_timeout_sec or fix targets / checks.'
+            )
+          end
+
+          sleep interval_sec
+        end
+      end
+
       def self.configure_aws(region:, access_key:, secret_key:)
         ::Aws.config[:region] = region
         ::Aws.config[:credentials] = ::Aws::Credentials.new(access_key, secret_key)

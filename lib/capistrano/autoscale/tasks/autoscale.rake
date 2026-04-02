@@ -20,7 +20,12 @@ namespace :deploy do
           info "Adding instances #{instances} to target group: #{tg_arn}"
 
           loadbalancer.register_targets(target_group_arn: tg_arn, targets: instances)
-          sleep 20
+
+          # Register health poll settings validated at autoscaled:deploy start (this task runs only from that flow).
+          Capistrano::Autoscale::AwsUtils.wait_until_target_group_fully_healthy(
+            load_balancer: loadbalancer,
+            target_group_arn: tg_arn
+          )
         end
       end
     end
@@ -115,6 +120,17 @@ namespace :autoscaled do
     stage = fetch(:stage).to_s                 # e.g. "production"
     asg_name = fetch(:autoscaling_group_name)  # set this in deploy/<env>.rb
     min_for_blue_green = fetch(:blue_green_min_instances, 2)
+
+    Capistrano::Autoscale::AwsUtils.validate_register_health_poll_config!(
+      interval_sec: fetch(
+        :register_poll_interval_sec,
+        Capistrano::Autoscale::AwsUtils::REGISTER_HEALTH_POLL_INTERVAL_DEFAULT
+      ),
+      timeout_sec: fetch(
+        :register_poll_timeout_sec,
+        Capistrano::Autoscale::AwsUtils::REGISTER_HEALTH_POLL_TIMEOUT_DEFAULT
+      )
+    )
 
     # Determine current instance count from the target group (to select the deploy strategy)
     ec2_instances = Capistrano::Autoscale::AwsUtils.fetch_all_ec2_instances
