@@ -1,13 +1,13 @@
 module Capistrano
   module Autoscale
     class LocalRunner
-      def self.run_cap_locally(stage:, task_name:, instance_order: nil)
+      # Runs +bundle exec cap+ locally. Optional +env+ is passed to +system+ (merged into the child process).
+      def self.run_cap_locally(stage:, task_name:, env: nil)
         cmd = ['bundle', 'exec', 'cap', stage.to_s, task_name.to_s]
-        env = {}
-        env['INSTANCE_ORDER'] = instance_order.to_s if instance_order
+        puts "Running locally: #{cmd.join(' ')}"
+        puts "with the env variables: #{env.inspect}" if env&.any?
 
-        puts "Running locally: #{env.empty? ? '' : "INSTANCE_ORDER=#{instance_order} "}#{cmd.join(' ')}"
-        success = system(env, *cmd)
+        success = env&.any? ? system(env, *cmd) : system(*cmd)
         raise "Local command failed: #{cmd.join(' ')}" unless success
       end
     end

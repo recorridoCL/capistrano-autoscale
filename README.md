@@ -1,38 +1,45 @@
 # Capistrano::Autoscale
 
-Herramientas para deploys con Capistrano sobre Auto Scaling Groups en AWS, usando el target group como fuente de servers y soportando deploy normal o blue/green (por paridad `even/odd`).
+Deploy con Capistrano sobre flotas detrás de un **Auto Scaling Group** en AWS: los servers se descubren desde el **target group** ligado al **Auto Scaling Group**, y se usa un solo task que elige entre usar un deploy lineal o **blue/green** (dos waves por paridad de índice).
 
 ## Instalación
 
 En tu `Gemfile`:
+
 ```ruby
 gem 'capistrano-autoscale'
 ```
-Luego:
+
 ```bash
 bundle install
 ```
 
-## Configuración mínima (Capistrano)
+## Configuración (Capistrano)
 
-En `Capfile` (si no lo tienes ya):
+**Capfile** (si aún no lo tienes):
+
 ```ruby
 require 'capistrano/autoscale'
 ```
 
-En `config/deploy.rb` (variables comunes):
+**`config/deploy.rb`** (variables comunes):
+
 ```ruby
-set :aws_region, ENV.fetch('AWS_REGION')                             # required;
-set :aws_access_owner_id, ENV.fetch('AWS_ACCESS_KEY_ID')             # required;
-set :aws_secret_owner_access_key, ENV.fetch('AWS_SECRET_ACCESS_KEY') # required;
-set :autoscaling_group_name, ENV.fetch('AUTOSCALING_GROUP_NAME')     # required;
-set :instance_order, 'even'          # default; puede ser 'odd' para la otra mitad
-set :blue_green_min_instances, 2     # default; mínimo para habilitar blue/green
-set :blue_green_orders, %w[even odd] # default; secuencia de waves; puedes cambiarla
-set :blue_green_create_ami, true     # default; si quieres crear AMI al final del blue/green
+set :aws_region, ENV.fetch('AWS_REGION')
+set :aws_access_owner_id, ENV.fetch('AWS_ACCESS_KEY_ID')
+set :aws_secret_owner_access_key, ENV.fetch('AWS_SECRET_ACCESS_KEY')
+set :autoscaling_group_name, ENV.fetch('AUTOSCALING_GROUP_NAME')
+
+set :blue_green_min_instances, 2       # default; por debajo → deploy sin waves
+set :update_launch_template_ami, true  # default; al final, AMI + nueva versión del launch template
+
+# Tras cada `register_targets`, poll hasta que **todos** los targets del TG estén `healthy`:
+# set :register_poll_interval_sec, 5   # default
+# set :register_poll_timeout_sec, 120  # default; intentos ≈ ceil(timeout / interval)
 ```
 
-En `config/deploy/production.rb` (ejemplo):
+**`config/deploy/production.rb`** (ejemplo de stage):
+
 ```ruby
 set :rails_env, 'production'      # usualmente ya está seteado
 set :deployment_env, 'production' # required; usado para nombrar la AMI, versión y descripciones
@@ -44,51 +51,75 @@ set :deploy_user, 'ubuntu'        # required;
 setup_servers
 ```
 
-## Cómo se descubren los servers
+Sin `setup_servers` en el stage, Capistrano no tendrá la lista de servers ni `:instances` para las tareas de ELB.
 
-- La gema toma el ARN del target group desde el Auto Scaling Group y lista los targets healthy (`describe_target_health`).
-- Cualquier instance registrada en el target group se incluye, aunque no pertenezca formalmente al ASG (útil para instancias como la cron, o instancias de sidekiq (posiblemente)).
-- La paridad `even/odd` se aplica por índice del listado ordenado, comenzando en 0.
+---
 
-## Deploys
-El deploy funciona a través de un único wrapper task:
+## Uso principal: `autoscaled:deploy`
+
+Este es el **único entrypoint** que debes usar en CI o a mano:
+
 ```bash
-bundle exec cap production autoscaled:deploy
+bundle exec cap <stage> autoscaled:deploy
 ```
 
-Este se adecua a cada caso como vemos a continuación:
+La gema no expone un “modo alternativo” oficial: el resto de tasks existen para componer este flujo o para casos muy puntuales.
 
-### Deploy normal (sin blue/green, menos del "mínimo" de instancias)
-Cuando el target group tiene una sola instance (o cuando no se cumple `blue_green_min_instances`):
-```bash
-bundle exec cap production autoscaled:deploy
-```
-El wrapper detecta que no hay instancias suficientes y ejecuta `deploy` normal.
+### Qué hace, en orden
 
-### Blue/green por paridad
-Con 2 o más instances en el target group, el wrapper:
-1) Cuenta instances del target group.
-2) Si hay suficientes, corre waves en secuencia (`blue_green_orders`, default `even` luego `odd`), pasando `INSTANCE_ORDER` a cada wave. Entre cada wave, va deregistrando/registrando las instancias correspondientes.
-3) Al finalizar las waves, opcionalmente ejecuta `deploy:new_ami_configuration` (controlado por `blue_green_create_ami`).
+1. **Valida** la configuración del poll de salud tras registrar (`:register_poll_interval_sec` / `:register_poll_timeout_sec` deben ser enteros positivos).
+2. **Toma un snapshot** de la flota: instancias registradas en el target group del ASG (vía `describe_target_health`), ordenadas por `instance_id`. Ese orden fija las waves en blue/green.
+3. **Si no hay ninguna instancia** en el TG → el deploy falla con error explícito.
+4. **Si el número de instancias es menor que `blue_green_min_instances`** (default 2) → ejecuta un **`deploy` normal** sobre **todas** las instancias del snapshot (sin sacar nadie del balanceador).
+5. **Si hay suficientes instancias** → ejecuta **blue/green**:
+   - Parte el snapshot en dos listas: índices **pares** (wave `even`) e **impares** (wave `odd`), en ese orden.
+   - Para **cada** wave, en subprocesos separados de Capistrano (misma variable de entorno interna con los IDs fijos de esa wave):
+     - `deploy:deregister_instances_from_load_balancer` → quita **solo** esas instancias del TG;
+     - `deploy` → despliegue contra **solo** esas instancias;
+     - `deploy:register_instances_in_load_balancer` → vuelve a registrar esas mismas instancias y **espera** a que **todo** el target group esté healthy (poll con timeout).
+   - Así, deregister / deploy / register de una wave **no** dependen de un nuevo listado del TG entre pasos (evita mezclar miembros de waves si el TG cambia entre llamadas).
+6. **Si `update_launch_template_ami` es true** (default) → `deploy:new_ami_configuration`: crea AMI a partir de una instancia del ASG, nueva versión del launch template y la deja como default.
 
-Puedes forzar el orden en runtime:
-```bash
-INSTANCE_ORDER=odd bundle exec cap production deploy
-```
-(Por si quieres correr sólo una wave manualmente.)
+### Deploy “simple” (sin blue/green)
 
-## Tareas incluidas
+Menos de `blue_green_min_instances` instancias en el TG (típico: una sola máquina en QA/staging): un solo `deploy` sobre toda la flota del snapshot, sin deregister/register.
 
-- `autoscaled:deploy`: wrapper que decide normal vs. blue/green según el conteo del target group.
-- `autoscaled:blue_green_deploy`: ejecuta las waves en el orden configurado y luego la creación de AMI opcional.
-- `deploy:register_instances_in_load_balancer`: registra los `:instances` actuales en el target group.
-- `deploy:deregister_instances_from_load_balancer`: los saca del target group.
-- `deploy:new_ami_configuration`: crea AMI desde una instance del ASG, genera nueva versión del Launch Template y la deja como default (requiere `:volume_sizes`, `:instance_type`, `:autoscaling_group_name`).
+### Blue/green (dos waves)
+
+Dos o más instancias en el TG: waves **even** y **odd** según la posición en la lista **ordenada por `instance_id`**. El orden de las waves **no** es configurable (diseño fijo para que los IDs por wave sean estables).
+
+### `cap <stage> deploy` sin el wrapper
+
+Un `deploy` directo **no** ejecuta el wrapper: usa lo que `setup_servers` resuelva en ese momento (toda la flota del TG si no hay env de wave). Las waves y los subconjuntos por instancia las arma **solo** `autoscaled:deploy` / `autoscaled:blue_green_deploy` vía la env interna `CAP_BLUE_GREEN_INSTANCE_IDS` en los subprocesos; **no** hace falta (ni conviene) setearla a mano.
+
+---
+
+## Cómo se descubren las instancias
+
+- El ARN del target group sale del Auto Scaling Group (`target_group_arns.first`).
+- Se consideran **todos** los targets devueltos por `describe_target_health` (no solo los que están `healthy` en ese momento); de ahí se obtienen IDs, se ordenan, y se resuelven IPs con EC2.
+- Cualquier instancia **registrada en el target group** entra en el snapshot, aunque no esté en el ASG (útil para cron, workers, etc., si comparten el mismo TG).
+- En blue/green, **deregister y register** usan exactamente la lista de IDs de la wave actual (`:instances` derivado de `CAP_BLUE_GREEN_INSTANCE_IDS` en cada subproceso).
+
+---
+
+## Otras tareas (referencia)
+
+| Task | Rol |
+|------|-----|
+| `autoscaled:deploy` | **Orquestador** principal (ver arriba). |
+| `autoscaled:blue_green_deploy` | Solo las dos waves; pensado para ser invocado desde `autoscaled:deploy` (requiere `:all_target_group_instances`). |
+| `deploy:deregister_instances_from_load_balancer` | Quita del TG los `:instances` del proceso actual. |
+| `deploy:register_instances_in_load_balancer` | Registra `:instances` en el TG y espera salud global del TG. |
+| `deploy:new_ami_configuration` | AMI + versión de launch template; la invoca el wrapper al final si `update_launch_template_ami`. |
+
+---
 
 ## Casos especiales
-- **Una sola instance**: usa `instance_order = 'even'` (default) para incluir el índice 0; el wrapper hará deploy normal (sin waves ni deregistro/registro).
-- **Instance extra fuera del ASG (cron/sidekiq) pero en el target group**: se incluye en el conteo y en las waves porque el discovery se basa en el target group.
-- **Orden de waves**: cambia `blue_green_orders` (ej. `%w[even odd]` o sólo `%w[even]` si quieres evitar un segundo wave en single-node).
+
+- **Una sola instancia**: deploy normal; sin waves ni deregister/register.
+- **Instancias extra en el TG** (p. ej. cron): entran en el conteo y en la partición even/odd como cualquier otro target del TG.
 
 ## Licencia
+
 MIT. See [MIT License](http://opensource.org/licenses/MIT).
