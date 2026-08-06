@@ -124,7 +124,7 @@ module Capistrano
                 encrypted: false,
                 delete_on_termination: true,
                 volume_size: volume_sizes[0],
-                volume_type: 'gp2'
+                volume_type: 'gp3'
               }
             },
             {
@@ -133,7 +133,7 @@ module Capistrano
                 encrypted: false,
                 delete_on_termination: true,
                 volume_size: volume_sizes[1],
-                volume_type: 'gp2'
+                volume_type: 'gp3'
               }
             }
           ],
